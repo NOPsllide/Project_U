@@ -10,7 +10,6 @@ package org.telegram.ui;
 
 import android.content.Context;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -19,10 +18,12 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.PhoneFormat.PhoneFormat;
+import org.telegram.core.data.repository.PrivacyRepository;
+import org.telegram.core.data.repository.PrivacyRepositoryImpl;
+import org.telegram.core.presenter.PrivacyUsersPresenter;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.tgnet.TLRPC;
@@ -42,31 +43,21 @@ import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 
-public class PrivacyUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ContactsActivity.ContactsActivityDelegate {
+public class PrivacyUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ContactsActivity.ContactsActivityDelegate, PrivacyUsersPresenter.View {
 
     private RecyclerListView listView;
     private LinearLayoutManager layoutManager;
     private ListAdapter listViewAdapter;
     private EmptyTextProgressView emptyView;
 
-    private int rowCount;
-    private int blockUserRow;
-    private int blockUserDetailRow;
-    private int usersHeaderRow;
-    private int usersStartRow;
-    private int usersEndRow;
-    private int usersDetailRow;
+    private PrivacyActivityDelegate delegate;
+    private PrivacyUsersPresenter presenter;
 
-    private boolean blockedUsersActivity;
-
+    private int currentType;
     private boolean isGroup;
     private ArrayList<Long> uidArray;
     private boolean isAlwaysShare;
 
-    private PrivacyActivityDelegate delegate;
-    
-    private int currentType;
-    
     public static final int TYPE_PRIVACY = 0;
     public static final int TYPE_BLOCKED = 1;
     public static final int TYPE_FILTER = 2;
@@ -78,7 +69,6 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
     public PrivacyUsersActivity() {
         super();
         currentType = TYPE_BLOCKED;
-        blockedUsersActivity = true;
     }
 
     public PrivacyUsersActivity(int type, ArrayList<Long> users, boolean group, boolean always) {
@@ -86,7 +76,6 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         uidArray = users;
         isAlwaysShare = always;
         isGroup = group;
-        blockedUsersActivity = false;
         currentType = type;
     }
 
@@ -97,6 +86,11 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         if (currentType == TYPE_BLOCKED) {
             NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.blockedUsersDidLoad);
         }
+        if (presenter == null) {
+            PrivacyRepository repository = new PrivacyRepositoryImpl(currentAccount);
+            presenter = new PrivacyUsersPresenter(repository, currentType, uidArray, isGroup, isAlwaysShare);
+        }
+        presenter.attachView(this);
         return true;
     }
 
@@ -107,10 +101,19 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         if (currentType == TYPE_BLOCKED) {
             NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.blockedUsersDidLoad);
         }
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
     public View createView(Context context) {
+        if (presenter == null) {
+            PrivacyRepository repository = new PrivacyRepositoryImpl(currentAccount);
+            presenter = new PrivacyUsersPresenter(repository, currentType, uidArray, isGroup, isAlwaysShare);
+            presenter.attachView(this);
+        }
+
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
         if (currentType == TYPE_BLOCKED) {
@@ -166,7 +169,7 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         listView.setOnItemClickListener((view, position) -> {
-            if (position == blockUserRow) {
+            if (position == presenter.getBlockUserRow()) {
                 if (currentType == TYPE_BLOCKED) {
                     presentFragment(new DialogOrContactPickerActivity());
                 } else {
@@ -179,27 +182,17 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
                     }
                     GroupCreateActivity fragment = new GroupCreateActivity(args);
                     fragment.setDelegate(ids -> {
-                        for (Long id1 : ids) {
-                            if (uidArray.contains(id1)) {
-                                continue;
-                            }
-                            uidArray.add(id1);
-                        }
-                        updateRows();
-                        if (delegate != null) {
-                            delegate.didUpdateUserList(uidArray, true);
-                        }
+                        presenter.addUsers(ids);
                     });
                     presentFragment(fragment);
                 }
-            } else if (position >= usersStartRow && position < usersEndRow) {
+            } else if (position >= presenter.getUsersStartRow() && position < presenter.getUsersEndRow()) {
+                long uid = presenter.getUid(position);
+                Bundle args = new Bundle();
                 if (currentType == TYPE_BLOCKED) {
-                    Bundle args = new Bundle();
-                    args.putLong("user_id", getMessagesController().blockePeers.keyAt(position - usersStartRow));
+                    args.putLong("user_id", uid);
                     presentFragment(new ProfileActivity(args));
                 } else {
-                    Bundle args = new Bundle();
-                    long uid = uidArray.get(position - usersStartRow);
                     if (DialogObject.isUserDialog(uid)) {
                         args.putLong("user_id", uid);
                     } else {
@@ -211,12 +204,8 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         });
 
         listView.setOnItemLongClickListener((view, position) -> {
-            if (position >= usersStartRow && position < usersEndRow) {
-                if (currentType == TYPE_BLOCKED) {
-                    showUnblockAlert(getMessagesController().blockePeers.keyAt(position - usersStartRow));
-                } else {
-                    showUnblockAlert(uidArray.get(position - usersStartRow));
-                }
+            if (position >= presenter.getUsersStartRow() && position < presenter.getUsersEndRow()) {
+                showUnblockAlert(presenter.getUid(position));
                 return true;
             }
             return false;
@@ -226,28 +215,18 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
             listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override
                 public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                    if (getMessagesController().blockedEndReached) {
-                        return;
-                    }
                     int firstVisibleItem = layoutManager.findFirstVisibleItemPosition();
                     int visibleItemCount = Math.abs(layoutManager.findLastVisibleItemPosition() - firstVisibleItem) + 1;
                     int totalItemCount = recyclerView.getAdapter().getItemCount();
                     if (visibleItemCount > 0) {
-                        if (layoutManager.findLastVisibleItemPosition() >= totalItemCount - 10) {
-                            getMessagesController().getBlockedPeers(false);
-                        }
+                        presenter.checkLoadMore(layoutManager.findLastVisibleItemPosition(), totalItemCount);
                     }
                 }
             });
-
-            if (getMessagesController().totalBlockedCount < 0) {
-                emptyView.showProgress();
-            } else {
-                emptyView.showTextView();
-            }
+            presenter.checkInitialEmptyViewState();
         }
 
-        updateRows();
+        presenter.updateRows();
         return fragmentView;
     }
 
@@ -268,67 +247,49 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
         }
         builder.setItems(items, (dialogInterface, i) -> {
             if (i == 0) {
-                if (currentType == TYPE_BLOCKED) {
-                    getMessagesController().unblockPeer(uid);
-                } else {
-                    uidArray.remove(uid);
-                    updateRows();
-                    if (delegate != null) {
-                        delegate.didUpdateUserList(uidArray, false);
-                    }
-                    if (uidArray.isEmpty()) {
-                        finishFragment();
-                    }
-                }
+                presenter.deleteUser(uid);
             }
         });
         showDialog(builder.create());
     }
 
-    private void updateRows() {
-        rowCount = 0;
-        if (!blockedUsersActivity || getMessagesController().totalBlockedCount >= 0) {
-            blockUserRow = rowCount++;
-            blockUserDetailRow = rowCount++;
-
-            int count;
-            if (currentType == TYPE_BLOCKED) {
-                count = getMessagesController().blockePeers.size();
-            } else {
-                count = uidArray.size();
-            }
-            if (count != 0) {
-                usersHeaderRow = rowCount++;
-                usersStartRow = rowCount;
-                rowCount += count;
-                usersEndRow = rowCount;
-                usersDetailRow = rowCount++;
-            } else {
-                usersHeaderRow = -1;
-                usersStartRow = -1;
-                usersEndRow = -1;
-                usersDetailRow = -1;
-            }
-        }
+    @Override
+    public void updateRows() {
         if (listViewAdapter != null) {
             listViewAdapter.notifyDataSetChanged();
         }
     }
 
     @Override
-    public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.updateInterfaces) {
-            int mask = (Integer) args[0];
-            if ((mask & MessagesController.UPDATE_MASK_AVATAR) != 0 || (mask & MessagesController.UPDATE_MASK_NAME) != 0) {
-                updateVisibleRows(mask);
-            }
-        } else if (id == NotificationCenter.blockedUsersDidLoad) {
-            emptyView.showTextView();
-            updateRows();
+    public void showProgress() {
+        if (emptyView != null) {
+            emptyView.showProgress();
         }
     }
 
-    private void updateVisibleRows(int mask) {
+    @Override
+    public void showTextView() {
+        if (emptyView != null) {
+            emptyView.showTextView();
+        }
+    }
+
+    @Override
+    public void onUserListUpdated(ArrayList<Long> ids, boolean added) {
+        if (delegate != null) {
+            delegate.didUpdateUserList(ids, added);
+        }
+    }
+
+    @Override
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (presenter != null) {
+            presenter.onNotificationReceived(id, args);
+        }
+    }
+
+    @Override
+    public void updateVisibleRows(int mask) {
         if (listView == null) {
             return;
         }
@@ -351,10 +312,10 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
 
     @Override
     public void didSelectContact(final TLRPC.User user, String param, ContactsActivity activity) {
-        if (user == null) {
+        if (user == null || presenter == null) {
             return;
         }
-        getMessagesController().blockPeer(user.id);
+        presenter.blockPeer(user.id);
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
@@ -367,7 +328,7 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
 
         @Override
         public int getItemCount() {
-            return rowCount;
+            return presenter != null ? presenter.getRowCount() : 0;
         }
 
         @Override
@@ -413,15 +374,10 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
             switch (holder.getItemViewType()) {
                 case 0:
                     ManageChatUserCell userCell = (ManageChatUserCell) holder.itemView;
-                    long uid;
-                    if (currentType == TYPE_BLOCKED) {
-                        uid = getMessagesController().blockePeers.keyAt(position - usersStartRow);
-                    } else {
-                        uid = uidArray.get(position - usersStartRow);
-                    }
+                    long uid = presenter.getUid(position);
                     userCell.setTag(uid);
                     if (uid > 0) {
-                        TLRPC.User user = getMessagesController().getUser(uid);
+                        TLRPC.User user = presenter.getUser(uid);
                         if (user != null) {
                             String number;
                             if (user.bot) {
@@ -431,10 +387,10 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
                             } else {
                                 number = LocaleController.getString("NumberUnknown", R.string.NumberUnknown);
                             }
-                            userCell.setData(user, null, number, position != usersEndRow - 1);
+                            userCell.setData(user, null, number, position != presenter.getUsersEndRow() - 1);
                         }
                     } else {
-                        TLRPC.Chat chat = getMessagesController().getChat(-uid);
+                        TLRPC.Chat chat = presenter.getChat(-uid);
                         if (chat != null) {
                             String subtitle;
                             if (chat.participants_count != 0) {
@@ -446,24 +402,24 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
                             } else {
                                 subtitle = LocaleController.getString("MegaPublic", R.string.MegaPublic);
                             }
-                            userCell.setData(chat, null, subtitle, position != usersEndRow - 1);
+                            userCell.setData(chat, null, subtitle, position != presenter.getUsersEndRow() - 1);
                         }
                     }
                     break;
                 case 1:
                     TextInfoPrivacyCell privacyCell = (TextInfoPrivacyCell) holder.itemView;
-                    if (position == blockUserDetailRow) {
+                    if (position == presenter.getBlockUserDetailRow()) {
                         if (currentType == TYPE_BLOCKED) {
                             privacyCell.setText(LocaleController.getString("BlockedUsersInfo", R.string.BlockedUsersInfo));
                         } else {
                             privacyCell.setText(null);
                         }
-                        if (usersStartRow == -1) {
+                        if (presenter.getUsersStartRow() == -1) {
                             privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
                         } else {
                             privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider, Theme.key_windowBackgroundGrayShadow));
                         }
-                    } else if (position == usersDetailRow) {
+                    } else if (position == presenter.getUsersDetailRow()) {
                         privacyCell.setText("");
                         privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
                     }
@@ -479,9 +435,9 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
                     break;
                 case 3:
                     HeaderCell headerCell = (HeaderCell) holder.itemView;
-                    if (position == usersHeaderRow) {
+                    if (position == presenter.getUsersHeaderRow()) {
                         if (currentType == TYPE_BLOCKED) {
-                            headerCell.setText(LocaleController.formatPluralString("BlockedUsersCount", getMessagesController().totalBlockedCount));
+                            headerCell.setText(LocaleController.formatPluralString("BlockedUsersCount", presenter.getTotalBlockedCount()));
                         } else {
                             headerCell.setText(LocaleController.getString("PrivacyExceptions", R.string.PrivacyExceptions));
                         }
@@ -492,11 +448,14 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
 
         @Override
         public int getItemViewType(int position) {
-            if (position == usersHeaderRow) {
+            if (presenter == null) {
+                return 0;
+            }
+            if (position == presenter.getUsersHeaderRow()) {
                 return 3;
-            } else if (position == blockUserRow) {
+            } else if (position == presenter.getBlockUserRow()) {
                 return 2;
-            } else if (position == blockUserDetailRow || position == usersDetailRow) {
+            } else if (position == presenter.getBlockUserDetailRow() || position == presenter.getUsersDetailRow()) {
                 return 1;
             } else {
                 return 0;
@@ -519,7 +478,6 @@ public class PrivacyUsersActivity extends BaseFragment implements NotificationCe
                 }
             }
         };
-
 
         themeDescriptions.add(new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundGray));
 
