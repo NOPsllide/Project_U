@@ -17,12 +17,11 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.RelativeLayout;
 
-import org.telegram.messenger.AccountInstance;
+import org.telegram.core.presenter.BubblePresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.FileLog;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
@@ -36,8 +35,9 @@ import org.telegram.ui.Components.ThemeEditorView;
 
 import java.util.ArrayList;
 
-public class BubbleActivity extends BasePermissionsActivity implements INavigationLayout.INavigationLayoutDelegate {
+public class BubbleActivity extends BasePermissionsActivity implements INavigationLayout.INavigationLayoutDelegate, BubblePresenter.BubbleView {
 
+    private BubblePresenter presenter;
     private boolean finished;
     private ArrayList<BaseFragment> mainFragmentsStack = new ArrayList<>();
 
@@ -100,11 +100,42 @@ public class BubbleActivity extends BasePermissionsActivity implements INavigati
         passcodeView = new PasscodeView(this);
         drawerLayoutContainer.addView(passcodeView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
-        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.closeOtherAppActivities, this);
+        presenter = new BubblePresenter();
+        presenter.attachView(this);
+        presenter.init(this);
 
         actionBarLayout.removeAllFragments();
 
         handleIntent(getIntent(), false, savedInstanceState != null, false, UserConfig.selectedAccount, 0);
+    }
+
+    @Override
+    public void showPasscode() {
+        showPasscodeActivity();
+    }
+
+    @Override
+    public void openChat(BubblePresenter.BubbleChatIntentInfo info) {
+        if (info == null) {
+            return;
+        }
+        currentAccount = info.account;
+        dialogId = info.dialogId;
+        BaseFragment chatActivity = new ChatActivity(info.args);
+        chatActivity.setInBubbleMode(true);
+        chatActivity.setCurrentAccount(currentAccount);
+
+        actionBarLayout.removeAllFragments();
+        actionBarLayout.addFragmentToStack(chatActivity);
+        if (presenter != null) {
+            presenter.onBubbleChatOpened(currentAccount, dialogId);
+        }
+        actionBarLayout.showLastFragment();
+    }
+
+    @Override
+    public void finishActivity() {
+        finish();
     }
 
     private void showPasscodeActivity() {
@@ -144,38 +175,12 @@ public class BubbleActivity extends BasePermissionsActivity implements INavigati
             UserConfig.getInstance(intentAccount).saveConfig(false);
             return false;
         }
-        currentAccount = intent.getIntExtra("currentAccount", UserConfig.selectedAccount);
-        if (!UserConfig.isValidAccount(currentAccount)) {
-            finish();
+        BubblePresenter.BubbleChatIntentInfo info = presenter != null ? presenter.parseIntent(intent) : null;
+        if (info == null) {
+            finishActivity();
             return false;
         }
-        BaseFragment chatActivity = null;
-        if (intent.getAction() != null && intent.getAction().startsWith("com.tmessages.openchat")) {
-            long chatId = intent.getLongExtra("chatId", 0);
-            long userId = intent.getLongExtra("userId", 0);
-            Bundle args = new Bundle();
-            if (userId != 0) {
-                dialogId = userId;
-                args.putLong("user_id", userId);
-            } else {
-                dialogId = -chatId;
-                args.putLong("chat_id", chatId);
-            }
-            chatActivity = new ChatActivity(args);
-            chatActivity.setInBubbleMode(true);
-            chatActivity.setCurrentAccount(currentAccount);
-        }
-        if (chatActivity == null) {
-            finish();
-            return false;
-        }
-        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.closeChats, dialogId);
-        actionBarLayout.removeAllFragments();
-        actionBarLayout.addFragmentToStack(chatActivity);
-        AccountInstance.getInstance(currentAccount).getNotificationsController().setOpenedInBubble(dialogId, true);
-        AccountInstance.getInstance(currentAccount).getConnectionsManager().setAppPaused(false, false);
-        actionBarLayout.showLastFragment();
-
+        openChat(info);
         return true;
     }
 
@@ -218,9 +223,11 @@ public class BubbleActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (currentAccount != -1) {
-            AccountInstance.getInstance(currentAccount).getNotificationsController().setOpenedInBubble(dialogId, false);
-            AccountInstance.getInstance(currentAccount).getConnectionsManager().setAppPaused(false, false);
+        if (currentAccount != -1 && presenter != null) {
+            presenter.onBubbleChatClosed(currentAccount, dialogId);
+        }
+        if (presenter != null) {
+            presenter.detachView();
         }
         onFinish();
     }
