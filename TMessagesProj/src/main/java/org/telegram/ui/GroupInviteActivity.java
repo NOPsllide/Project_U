@@ -16,14 +16,13 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
-import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.TLRPC;
+import org.telegram.core.data.repository.ChatRepository;
+import org.telegram.core.data.repository.ChatRepositoryImpl;
+import org.telegram.core.presenter.GroupInvitePresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -42,7 +41,7 @@ import java.util.ArrayList;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class GroupInviteActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class GroupInviteActivity extends BaseFragment implements GroupInvitePresenter.View {
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -50,7 +49,7 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
 
     private long chatId;
     private boolean loading;
-    private TLRPC.TL_chatInviteExported invite;
+    private GroupInvitePresenter presenter;
 
     private int linkRow;
     private int linkInfoRow;
@@ -69,9 +68,12 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
 
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatInfoDidLoad);
-        getMessagesController().loadFullChat(chatId, classGuid, true);
+        ChatRepository repository = new ChatRepositoryImpl(currentAccount);
+        presenter = new GroupInvitePresenter(repository, currentAccount, chatId, classGuid);
+        presenter.attachView(this);
+
         loading = true;
+        presenter.loadInviteLink();
 
         rowCount = 0;
         linkRow = rowCount++;
@@ -86,7 +88,9 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
 
     @Override
     public void onFragmentDestroy() {
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatInfoDidLoad);
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -124,25 +128,23 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
                 return;
             }
             if (position == copyLinkRow || position == linkRow) {
-                if (invite == null) {
-                    return;
-                }
+                String link = presenter.getInviteLink();
+                if (link == null || link.equals("error")) return;
                 try {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
-                    android.content.ClipData clip = android.content.ClipData.newPlainText("label", invite.link);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("label", link);
                     clipboard.setPrimaryClip(clip);
                     BulletinFactory.createCopyLinkBulletin(this).show();
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
             } else if (position == shareLinkRow) {
-                if (invite == null) {
-                    return;
-                }
+                String link = presenter.getInviteLink();
+                if (link == null || link.equals("error")) return;
                 try {
                     Intent intent = new Intent(Intent.ACTION_SEND);
                     intent.setType("text/plain");
-                    intent.putExtra(Intent.EXTRA_TEXT, invite.link);
+                    intent.putExtra(Intent.EXTRA_TEXT, link);
                     getParentActivity().startActivityForResult(Intent.createChooser(intent, LocaleController.getString("InviteToGroupByLink", R.string.InviteToGroupByLink)), 500);
                 } catch (Exception e) {
                     FileLog.e(e);
@@ -151,32 +153,13 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setMessage(LocaleController.getString("RevokeAlert", R.string.RevokeAlert));
                 builder.setTitle(LocaleController.getString("RevokeLink", R.string.RevokeLink));
-                builder.setPositiveButton(LocaleController.getString("RevokeButton", R.string.RevokeButton), (dialogInterface, i) -> generateLink(true));
+                builder.setPositiveButton(LocaleController.getString("RevokeButton", R.string.RevokeButton), (dialogInterface, i) -> presenter.revokeLink());
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                 showDialog(builder.create());
             }
         });
 
         return fragmentView;
-    }
-
-    @Override
-    public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.chatInfoDidLoad) {
-            TLRPC.ChatFull info = (TLRPC.ChatFull) args[0];
-            int guid = (int) args[1];
-            if (info.id == chatId && guid == classGuid) {
-                invite = getMessagesController().getExportedInvite(chatId);
-                if (invite == null) {
-                    generateLink(false);
-                } else {
-                    loading = false;
-                    if (listAdapter != null) {
-                        listAdapter.notifyDataSetChanged();
-                    }
-                }
-            }
-        }
     }
 
     @Override
@@ -187,35 +170,50 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
         }
     }
 
-    private void generateLink(final boolean newRequest) {
-        loading = true;
-        TLRPC.TL_messages_exportChatInvite req = new TLRPC.TL_messages_exportChatInvite();
-        req.peer = getMessagesController().getInputPeer(-chatId);
-        final int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (error == null) {
-                invite = (TLRPC.TL_chatInviteExported) response;
-                if (newRequest) {
-                    if (getParentActivity() == null) {
-                        return;
-                    }
-                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                    builder.setMessage(LocaleController.getString("RevokeAlertNewLink", R.string.RevokeAlertNewLink));
-                    builder.setTitle(LocaleController.getString("RevokeLink", R.string.RevokeLink));
-                    builder.setNegativeButton(LocaleController.getString("OK", R.string.OK), null);
-                    showDialog(builder.create());
-                }
-            }
-            loading = false;
-            listAdapter.notifyDataSetChanged();
-        }));
-        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
+    @Override
+    public void showInviteLink(String link) {
         if (listAdapter != null) {
             listAdapter.notifyDataSetChanged();
         }
     }
 
+    @Override
+    public void showLoading() {
+        loading = true;
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void hideLoading() {
+        loading = false;
+    }
+
+    @Override
+    public void showNewLinkDialog() {
+        if (getParentActivity() == null) return;
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setMessage(LocaleController.getString("RevokeAlertNewLink", R.string.RevokeAlertNewLink));
+        builder.setTitle(LocaleController.getString("RevokeLink", R.string.RevokeLink));
+        builder.setNegativeButton(LocaleController.getString("OK", R.string.OK), null);
+        showDialog(builder.create());
+    }
+
+    @Override
+    public void refreshList() {
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public boolean isViewAlive() {
+        return getParentActivity() != null;
+    }
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
-        
+
         private Context mContext;
 
         public ListAdapter(Context context) {
@@ -272,8 +270,7 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
                         privacyCell.setText("");
                         privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
                     } else if (position == linkInfoRow) {
-                        TLRPC.Chat chat = getMessagesController().getChat(chatId);
-                        if (ChatObject.isChannel(chat) && !chat.megagroup) {
+                        if (presenter.isChannel()) {
                             privacyCell.setText(LocaleController.getString("ChannelLinkInfo", R.string.ChannelLinkInfo));
                         } else {
                             privacyCell.setText(LocaleController.getString("LinkInfo", R.string.LinkInfo));
@@ -283,7 +280,7 @@ public class GroupInviteActivity extends BaseFragment implements NotificationCen
                     break;
                 case 2:
                     TextBlockCell textBlockCell = (TextBlockCell) holder.itemView;
-                    textBlockCell.setText(invite != null ? invite.link : "error", false);
+                    textBlockCell.setText(presenter.getInviteLink(), false);
                     break;
             }
         }
