@@ -2,6 +2,8 @@ package org.telegram.core.data.repository;
 
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.BaseFragment;
+import java.util.ArrayList;
 import java.util.List;
 
 public interface ChatRepository {
@@ -50,6 +52,14 @@ public interface ChatRepository {
     long getClientUserId();
 
     int getCurrentTime();
+
+    boolean loadMissingUsers(ArrayList<Long> uids);
+
+    int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, TLRPC.InputGeoPoint location, String address, BaseFragment fragment);
+
+    void changeChatAvatar(long chatId, TLRPC.InputFile inputPhoto, TLRPC.InputFile inputVideo, double videoTimestamp, String inputVideoPath, TLRPC.FileLocation avatar, TLRPC.FileLocation avatarBig);
+
+    void cancelRequest(int reqId);
 
     interface InactiveChannelsCallback {
         void onSuccess(TLRPC.TL_messages_inactiveChats chats);

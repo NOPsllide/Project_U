@@ -3,6 +3,7 @@ package org.telegram.core.data.repository;
 import android.text.TextUtils;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatObject;
+import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
@@ -10,6 +11,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.BaseFragment;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -194,5 +196,58 @@ public class ChatRepositoryImpl implements ChatRepository {
                 }
             }
         }));
+    }
+
+    @Override
+    public boolean loadMissingUsers(ArrayList<Long> uids) {
+        if (uids == null || uids.isEmpty()) {
+            return true;
+        }
+        ArrayList<Long> usersToLoad = new ArrayList<>();
+        for (int a = 0; a < uids.size(); a++) {
+            Long uid = uids.get(a);
+            if (MessagesController.getInstance(accountNum).getUser(uid) == null) {
+                usersToLoad.add(uid);
+            }
+        }
+        if (usersToLoad.isEmpty()) {
+            return true;
+        }
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        ArrayList<TLRPC.User> users = new ArrayList<>();
+        MessagesStorage.getInstance(accountNum).getStorageQueue().postRunnable(() -> {
+            users.addAll(MessagesStorage.getInstance(accountNum).getUsers(usersToLoad));
+            countDownLatch.countDown();
+        });
+        try {
+            countDownLatch.await();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        if (usersToLoad.size() != users.size()) {
+            return false;
+        }
+        if (!users.isEmpty()) {
+            for (TLRPC.User user : users) {
+                MessagesController.getInstance(accountNum).putUser(user, true);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, TLRPC.InputGeoPoint location, String address, BaseFragment fragment) {
+        return MessagesController.getInstance(accountNum).createChat(title, selectedContacts, about, chatType, forImport, location, address, fragment);
+    }
+
+    @Override
+    public void changeChatAvatar(long chatId, TLRPC.InputFile inputPhoto, TLRPC.InputFile inputVideo, double videoTimestamp, String inputVideoPath, TLRPC.FileLocation avatar, TLRPC.FileLocation avatarBig) {
+        MessagesController.getInstance(accountNum).changeChatAvatar(chatId, null, inputPhoto, inputVideo, videoTimestamp, inputVideoPath, avatar, avatarBig, null);
+    }
+
+    @Override
+    public void cancelRequest(int reqId) {
+        ConnectionsManager.getInstance(accountNum).cancelRequest(reqId, true);
     }
 }

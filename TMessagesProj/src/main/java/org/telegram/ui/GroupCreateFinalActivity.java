@@ -63,6 +63,7 @@ import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.VerticalPositionAutoAnimator;
 import org.telegram.ui.Components.ImageUpdater;
 import org.telegram.ui.Components.BackupImageView;
+import org.telegram.core.presenter.GroupCreateFinalPresenter;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ContextProgressView;
 import org.telegram.ui.Components.GroupCreateDividerItemDecoration;
@@ -77,8 +78,9 @@ import java.util.concurrent.CountDownLatch;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class GroupCreateFinalActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ImageUpdater.ImageUpdaterDelegate {
+public class GroupCreateFinalActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ImageUpdater.ImageUpdaterDelegate, GroupCreateFinalPresenter.GroupCreateFinalView {
 
+    private GroupCreateFinalPresenter presenter;
     private GroupCreateAdapter adapter;
     private RecyclerListView listView;
     private EditTextEmoji editText;
@@ -140,6 +142,8 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new GroupCreateFinalPresenter(currentAccount);
+        presenter.attachView(this);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.updateInterfaces);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatDidCreated);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatDidFailCreate);
@@ -153,35 +157,8 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
                 selectedContacts.add(contacts[a]);
             }
         }
-        final ArrayList<Long> usersToLoad = new ArrayList<>();
-        for (int a = 0; a < selectedContacts.size(); a++) {
-            Long uid = selectedContacts.get(a);
-            if (getMessagesController().getUser(uid) == null) {
-                usersToLoad.add(uid);
-            }
-        }
-        if (!usersToLoad.isEmpty()) {
-            final CountDownLatch countDownLatch = new CountDownLatch(1);
-            final ArrayList<TLRPC.User> users = new ArrayList<>();
-            MessagesStorage.getInstance(currentAccount).getStorageQueue().postRunnable(() -> {
-                users.addAll(MessagesStorage.getInstance(currentAccount).getUsers(usersToLoad));
-                countDownLatch.countDown();
-            });
-            try {
-                countDownLatch.await();
-            } catch (Exception e) {
-                FileLog.e(e);
-            }
-            if (usersToLoad.size() != users.size()) {
-                return false;
-            }
-            if (!users.isEmpty()) {
-                for (TLRPC.User user : users) {
-                    getMessagesController().putUser(user, true);
-                }
-            } else {
-                return false;
-            }
+        if (presenter != null && !presenter.loadMissingUsers(selectedContacts)) {
+            return false;
         }
         return super.onFragmentCreate();
     }
@@ -193,13 +170,24 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatDidCreated);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatDidFailCreate);
         imageUpdater.clear();
-        if (reqId != 0) {
-            ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true);
+        if (reqId != 0 && presenter != null) {
+            presenter.cancelCreationRequest(reqId);
+        }
+        if (presenter != null) {
+            presenter.detachView();
         }
         if (editText != null) {
             editText.onDestroy();
         }
         AndroidUtilities.removeAdjustResize(getParentActivity(), classGuid);
+    }
+
+    @Override
+    public void onChatCreated(long chatId) {
+    }
+
+    @Override
+    public void onChatCreateFailed() {
     }
 
     @Override
@@ -606,7 +594,7 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
                 createAfterUpload = true;
             } else {
                 showEditDoneProgress(true);
-                reqId = getMessagesController().createChat(editText.getText().toString(), selectedContacts, null, chatType, forImport, currentGroupCreateLocation, currentGroupCreateAddress, GroupCreateFinalActivity.this);
+                reqId = presenter != null ? presenter.createChat(editText.getText().toString(), selectedContacts, chatType, forImport, currentGroupCreateLocation, currentGroupCreateAddress, GroupCreateFinalActivity.this) : 0;
             }
         });
 
@@ -656,7 +644,9 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
                     if (delegate != null) {
                         delegate.didStartChatCreation();
                     }
-                    getMessagesController().createChat(editText.getText().toString(), selectedContacts, null, chatType, forImport, currentGroupCreateLocation, currentGroupCreateAddress, GroupCreateFinalActivity.this);
+                    if (presenter != null) {
+                        reqId = presenter.createChat(editText.getText().toString(), selectedContacts, chatType, forImport, currentGroupCreateLocation, currentGroupCreateAddress, GroupCreateFinalActivity.this);
+                    }
                 }
                 showAvatarProgress(false, true);
                 avatarEditor.setImageDrawable(null);
@@ -813,7 +803,9 @@ public class GroupCreateFinalActivity extends BaseFragment implements Notificati
                 presentFragment(new ChatActivity(args2), true);
             }
             if (inputPhoto != null || inputVideo != null) {
-                getMessagesController().changeChatAvatar(chatId, null, inputPhoto, inputVideo, videoTimestamp, inputVideoPath, avatar, avatarBig, null);
+                if (presenter != null) {
+                    presenter.changeChatAvatar(chatId, inputPhoto, inputVideo, videoTimestamp, inputVideoPath, avatar, avatarBig);
+                }
             }
         }
     }
