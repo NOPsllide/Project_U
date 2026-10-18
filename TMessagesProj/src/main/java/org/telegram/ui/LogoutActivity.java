@@ -1,11 +1,3 @@
-/*
- * This is the source code of Telegram for Android v. 5.x.x.
- * It is licensed under GNU GPL v. 2 or later.
- * You should have received a copy of the license in this archive (see LICENSE).
- *
- * Copyright Nikolai Kudashov, 2013-2018.
- */
-
 package org.telegram.ui;
 
 import static org.telegram.ui.Components.Premium.LimitReachedBottomSheet.TYPE_ACCOUNTS;
@@ -24,12 +16,11 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
-import org.telegram.messenger.SharedConfig;
-import org.telegram.messenger.UserConfig;
+import org.telegram.core.data.repository.AuthRepository;
+import org.telegram.core.data.repository.AuthRepositoryImpl;
+import org.telegram.core.presenter.LogoutPresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -47,11 +38,12 @@ import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 
-public class LogoutActivity extends BaseFragment {
+public class LogoutActivity extends BaseFragment implements LogoutPresenter.View {
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
     private AnimatorSet animatorSet;
+    private LogoutPresenter presenter;
 
     private int alternativeHeaderRow;
     private int addAccountRow;
@@ -68,14 +60,18 @@ public class LogoutActivity extends BaseFragment {
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
 
+        AuthRepository repository = new AuthRepositoryImpl(currentAccount);
+        presenter = new LogoutPresenter(repository);
+        presenter.attachView(this);
+
         rowCount = 0;
         alternativeHeaderRow = rowCount++;
-        if (UserConfig.getActivatedAccountsCount() < UserConfig.MAX_ACCOUNT_COUNT) {
+        if (presenter.canAddAccount()) {
             addAccountRow = rowCount++;
         } else {
             addAccountRow = -1;
         }
-        if (SharedConfig.passcodeHash.length() <= 0) {
+        if (!presenter.hasPasscode()) {
             passcodeRow = rowCount++;
         } else {
             passcodeRow = -1;
@@ -88,6 +84,14 @@ public class LogoutActivity extends BaseFragment {
         logoutSectionRow = rowCount++;
 
         return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -120,49 +124,67 @@ public class LogoutActivity extends BaseFragment {
         listView.setAdapter(listAdapter);
         listView.setOnItemClickListener((view, position, x, y) -> {
             if (position == addAccountRow) {
-                int freeAccounts = 0;
-                Integer availableAccount = null;
-                for (int a = UserConfig.MAX_ACCOUNT_COUNT - 1; a >= 0; a--) {
-                    if (!UserConfig.getInstance(a).isClientActivated()) {
-                        freeAccounts++;
-                        if (availableAccount == null) {
-                            availableAccount = a;
-                        }
-                    }
-                }
-                if (!UserConfig.hasPremiumOnAccounts()) {
-                    freeAccounts -= (UserConfig.MAX_ACCOUNT_COUNT - UserConfig.MAX_ACCOUNT_DEFAULT_COUNT);
-                }
-                if (freeAccounts > 0 && availableAccount != null) {
-                    presentFragment(new LoginActivity(availableAccount));
-                } else if (!UserConfig.hasPremiumOnAccounts()) {
-                    LimitReachedBottomSheet limitReachedBottomSheet = new LimitReachedBottomSheet(this, getContext(), TYPE_ACCOUNTS, currentAccount);
-                    showDialog(limitReachedBottomSheet);
-                }
+                presenter.onAddAccountClicked();
             } else if (position == passcodeRow) {
-                presentFragment(PasscodeActivity.determineOpenFragment());
+                presenter.onPasscodeClicked();
             } else if (position == cacheRow) {
-                presentFragment(new CacheControlActivity());
+                presenter.onCacheClicked();
             } else if (position == phoneRow) {
-                presentFragment(new ActionIntroActivity(ActionIntroActivity.ACTION_TYPE_CHANGE_PHONE_NUMBER));
+                presenter.onPhoneClicked();
             } else if (position == supportRow) {
-                showDialog(AlertsCreator.createSupportAlert(LogoutActivity.this, null));
+                presenter.onSupportClicked();
             } else if (position == logoutRow) {
-                if (getParentActivity() == null) {
-                    return;
-                }
-                showDialog(makeLogOutDialog(getParentActivity(), currentAccount));
+                presenter.onLogoutClicked();
             }
         });
 
         return fragmentView;
     }
 
-    public static AlertDialog makeLogOutDialog(Context context, int currentAccount) {
+    @Override
+    public void openLoginActivity(int account) {
+        presentFragment(new LoginActivity(account));
+    }
+
+    @Override
+    public void showAccountLimitBottomSheet() {
+        LimitReachedBottomSheet limitReachedBottomSheet = new LimitReachedBottomSheet(this, getContext(), TYPE_ACCOUNTS, currentAccount);
+        showDialog(limitReachedBottomSheet);
+    }
+
+    @Override
+    public void openPasscodeActivity() {
+        presentFragment(PasscodeActivity.determineOpenFragment());
+    }
+
+    @Override
+    public void openCacheControlActivity() {
+        presentFragment(new CacheControlActivity());
+    }
+
+    @Override
+    public void openChangePhoneNumber() {
+        presentFragment(new ActionIntroActivity(ActionIntroActivity.ACTION_TYPE_CHANGE_PHONE_NUMBER));
+    }
+
+    @Override
+    public void showSupportAlert() {
+        showDialog(AlertsCreator.createSupportAlert(LogoutActivity.this, null));
+    }
+
+    @Override
+    public void showLogoutConfirmationDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        showDialog(makeLogOutDialog(getParentActivity(), presenter));
+    }
+
+    public static AlertDialog makeLogOutDialog(Context context, LogoutPresenter presenter) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setMessage(LocaleController.getString("AreYouSureLogout", R.string.AreYouSureLogout));
         builder.setTitle(LocaleController.getString("LogOut", R.string.LogOut));
-        builder.setPositiveButton(LocaleController.getString("LogOut", R.string.LogOut), (dialogInterface, i) -> MessagesController.getInstance(currentAccount).performLogout(1));
+        builder.setPositiveButton(LocaleController.getString("LogOut", R.string.LogOut), (dialogInterface, i) -> presenter.confirmLogout());
         builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
         AlertDialog alertDialog = builder.create();
         TextView button = (TextView) alertDialog.getButton(DialogInterface.BUTTON_POSITIVE);
@@ -172,9 +194,17 @@ public class LogoutActivity extends BaseFragment {
         return alertDialog;
     }
 
+    public static AlertDialog makeLogOutDialog(Context context, int currentAccount) {
+        AuthRepository repo = new AuthRepositoryImpl(currentAccount);
+        LogoutPresenter pres = new LogoutPresenter(repo);
+        return makeLogOutDialog(context, pres);
+    }
+
     @Override
     protected void onDialogDismiss(Dialog dialog) {
-        DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
+        if (presenter != null) {
+            presenter.onDialogDismissed();
+        }
     }
 
     @Override
