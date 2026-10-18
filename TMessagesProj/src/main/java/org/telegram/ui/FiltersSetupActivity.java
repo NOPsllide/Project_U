@@ -52,12 +52,15 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.Premium.LimitReachedBottomSheet;
 import org.telegram.ui.Components.ProgressButton;
 import org.telegram.ui.Components.RLottieImageView;
+import org.telegram.core.presenter.FiltersSetupPresenter;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 
-public class FiltersSetupActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class FiltersSetupActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, FiltersSetupPresenter.FiltersSetupView {
 
+    private FiltersSetupPresenter presenter;
+    private AlertDialog progressDialog;
     private RecyclerListView listView;
     private ListAdapter adapter;
     private ItemTouchHelper itemTouchHelper;
@@ -418,13 +421,12 @@ public class FiltersSetupActivity extends BaseFragment implements NotificationCe
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new FiltersSetupPresenter(currentAccount);
+        presenter.attachView(this);
         updateRows(true);
-        getMessagesController().loadRemoteFilters(true);
+        presenter.loadFilters(true);
         getNotificationCenter().addObserver(this, NotificationCenter.dialogFiltersUpdated);
         getNotificationCenter().addObserver(this, NotificationCenter.suggestedFiltersLoaded);
-        if (getMessagesController().suggestedFilters.isEmpty()) {
-            getMessagesController().loadSuggestedFilters();
-        }
         return super.onFragmentCreate();
     }
 
@@ -475,18 +477,42 @@ public class FiltersSetupActivity extends BaseFragment implements NotificationCe
         getNotificationCenter().removeObserver(this, NotificationCenter.suggestedFiltersLoaded);
         if (orderChanged) {
             getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
-            getMessagesStorage().saveDialogFiltersOrder();
-            TLRPC.TL_messages_updateDialogFiltersOrder req = new TLRPC.TL_messages_updateDialogFiltersOrder();
-            ArrayList<MessagesController.DialogFilter> filters = getMessagesController().dialogFilters;
-            for (int a = 0, N = filters.size(); a < N; a++) {
-                MessagesController.DialogFilter filter = filters.get(a);
-                req.order.add(filter.id);
+            if (presenter != null) {
+                presenter.saveOrder();
             }
-            getConnectionsManager().sendRequest(req, (response, error) -> {
-
-            });
+        }
+        if (presenter != null) {
+            presenter.detachView();
         }
         super.onFragmentDestroy();
+    }
+
+    @Override
+    public void onFilterDeleted(MessagesController.DialogFilter filter) {
+        try {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
+                progressDialog = null;
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        updateRows(true);
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onSuggestedFilterAdded(TLRPC.TL_dialogFilterSuggested suggested) {
+        ignoreUpdates = false;
+        ArrayList<TLRPC.TL_dialogFilterSuggested> suggestedFilters = getMessagesController().suggestedFilters;
+        suggestedFilters.remove(suggested);
+        getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
+        updateRows(false);
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
     }
 
     @Override
@@ -646,52 +672,14 @@ public class FiltersSetupActivity extends BaseFragment implements NotificationCe
                                 builder.setMessage(LocaleController.getString("FilterDeleteAlert", R.string.FilterDeleteAlert));
                                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                                 builder.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialog2, which2) -> {
-                                    AlertDialog progressDialog = null;
                                     if (getParentActivity() != null) {
                                         progressDialog = new AlertDialog(getParentActivity(), 3);
                                         progressDialog.setCanCancel(false);
                                         progressDialog.show();
                                     }
-                                    final AlertDialog progressDialogFinal = progressDialog;
-                                    TLRPC.TL_messages_updateDialogFilter req = new TLRPC.TL_messages_updateDialogFilter();
-                                    req.id = filter.id;
-                                    getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                                        try {
-                                            if (progressDialogFinal != null) {
-                                                progressDialogFinal.dismiss();
-                                            }
-                                        } catch (Exception e) {
-                                            FileLog.e(e);
-                                        }
-                                        int idx = getMessagesController().dialogFilters.indexOf(filter);
-                                        if (idx >= 0) {
-                                            idx += filtersStartRow;
-                                        }
-                                        if (!showAllChats) {
-                                            idx--;
-                                        }
-                                        ignoreUpdates = true;
-                                        getMessagesController().removeFilter(filter);
-                                        getMessagesStorage().deleteDialogFilter(filter);
-                                        ignoreUpdates = false;
-
-                                        int prevAddRow = createFilterRow;
-                                        int prevRecommendedHeaderRow = recommendedHeaderRow;
-                                        updateRows(idx == -1);
-                                        if (idx != -1) {
-                                            if (filtersStartRow == -1) {
-                                                adapter.notifyItemRangeRemoved(idx - 1, 2);
-                                            } else {
-                                                adapter.notifyItemRemoved(idx);
-                                            }
-                                            if (prevRecommendedHeaderRow == -1 && recommendedHeaderRow != -1) {
-                                                adapter.notifyItemRangeInserted(prevRecommendedHeaderRow, recommendedSectionRow - recommendedHeaderRow + 1);
-                                            }
-                                            if (prevAddRow == -1 && createFilterRow != -1) {
-                                                adapter.notifyItemInserted(createFilterRow);
-                                            }
-                                        }
-                                    }));
+                                    if (presenter != null) {
+                                        presenter.deleteFilter(filter);
+                                    }
                                 });
                                 AlertDialog alertDialog = builder.create();
                                 showDialog(alertDialog);
@@ -720,95 +708,10 @@ public class FiltersSetupActivity extends BaseFragment implements NotificationCe
                     suggestedFilterCell.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                     suggestedFilterCell.setAddOnClickListener(v -> {
                         TLRPC.TL_dialogFilterSuggested suggested = suggestedFilterCell.getSuggestedFilter();
-                        MessagesController.DialogFilter filter = new MessagesController.DialogFilter();
-                        filter.name = suggested.filter.title;
-                        filter.id = 2;
-                        while (getMessagesController().dialogFiltersById.get(filter.id) != null) {
-                            filter.id++;
-                        }
-                        filter.pendingUnreadCount = filter.unreadCount = -1;
-                        for (int b = 0; b < 2; b++) {
-                            ArrayList<TLRPC.InputPeer> fromArray = b == 0 ? suggested.filter.include_peers : suggested.filter.exclude_peers;
-                            ArrayList<Long> toArray = b == 0 ? filter.alwaysShow : filter.neverShow;
-                            for (int a = 0, N = fromArray.size(); a < N; a++) {
-                                TLRPC.InputPeer peer = fromArray.get(a);
-                                long lowerId;
-                                if (peer.user_id != 0) {
-                                    lowerId = peer.user_id;
-                                } else if (peer.chat_id != 0) {
-                                    lowerId = -peer.chat_id;
-                                } else {
-                                    lowerId = -peer.channel_id;
-                                }
-                                toArray.add(lowerId);
-                            }
-                        }
-                        if (suggested.filter.groups) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_GROUPS;
-                        }
-                        if (suggested.filter.bots) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_BOTS;
-                        }
-                        if (suggested.filter.contacts) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_CONTACTS;
-                        }
-                        if (suggested.filter.non_contacts) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_NON_CONTACTS;
-                        }
-                        if (suggested.filter.broadcasts) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_CHANNELS;
-                        }
-                        if (suggested.filter.exclude_archived) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_EXCLUDE_ARCHIVED;
-                        }
-                        if (suggested.filter.exclude_read) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_EXCLUDE_READ;
-                        }
-                        if (suggested.filter.exclude_muted) {
-                            filter.flags |= MessagesController.DIALOG_FILTER_FLAG_EXCLUDE_MUTED;
-                        }
                         ignoreUpdates = true;
-                        FilterCreateActivity.saveFilterToServer(filter, filter.flags, filter.name, filter.alwaysShow, filter.neverShow, filter.pinnedDialogs, true, true, true, true, false, FiltersSetupActivity.this, () -> {
-                            getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
-                            ignoreUpdates = false;
-                            ArrayList<TLRPC.TL_dialogFilterSuggested> suggestedFilters = getMessagesController().suggestedFilters;
-                            int index = suggestedFilters.indexOf(suggested);
-                            if (index != -1) {
-                                boolean wasEmpty = filtersStartRow == -1;
-                                suggestedFilters.remove(index);
-                                index += recommendedStartRow;
-                                int prevAddRow = createFilterRow;
-                                int prevRecommendedHeaderRow = recommendedHeaderRow;
-                                int prevRecommendedSectionRow = recommendedSectionRow;
-                                updateRows(false);
-                                if (prevAddRow != -1 && createFilterRow == -1) {
-                                    adapter.notifyItemRemoved(prevAddRow);
-                                }
-                                if (prevRecommendedHeaderRow != -1 && recommendedHeaderRow == -1) {
-                                    adapter.notifyItemRangeRemoved(prevRecommendedHeaderRow, prevRecommendedSectionRow - prevRecommendedHeaderRow + 1);
-                                } else {
-                                    adapter.notifyItemRemoved(index);
-                                }
-                                if (wasEmpty) {
-                                    adapter.notifyItemInserted(filtersHeaderRow);
-                                }
-                                int indexToInsert = 0;
-                                for (int i = 0; i < getMessagesController().dialogFilters.size(); i++) {
-                                    if (filter.id == getMessagesController().dialogFilters.get(i).id) {
-                                        indexToInsert = i;
-                                    }
-                                }
-                                if (!getUserConfig().isPremium()) {
-                                    indexToInsert--;
-                                }
-                                if (indexToInsert < 0) {
-                                    indexToInsert = 0;
-                                }
-                                adapter.notifyItemInserted(filtersStartRow + indexToInsert);
-                            } else {
-                                updateRows(true);
-                            }
-                        });
+                        if (presenter != null) {
+                            presenter.addSuggestedFilter(suggested, FiltersSetupActivity.this);
+                        }
                     });
                     view = suggestedFilterCell;
                     break;
