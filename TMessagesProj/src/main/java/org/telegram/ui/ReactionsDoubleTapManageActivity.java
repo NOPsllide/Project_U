@@ -17,12 +17,13 @@ import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.telegram.core.data.repository.SettingsRepositoryImpl;
+import org.telegram.core.presenter.ReactionsDoubleTapPresenter;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -41,17 +42,12 @@ import org.telegram.ui.Components.SimpleThemeDescription;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ReactionsDoubleTapManageActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ReactionsDoubleTapManageActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ReactionsDoubleTapPresenter.View {
 
     private LinearLayout contentView;
     private RecyclerListView listView;
     private RecyclerView.Adapter listAdapter;
-
-    int previewRow;
-    int infoRow;
-    int reactionsStartRow = -1;
-    int premiumReactionRow;
-    int rowCount;
+    private ReactionsDoubleTapPresenter presenter;
 
     public ReactionsDoubleTapManageActivity() {
         super();
@@ -59,6 +55,9 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new ReactionsDoubleTapPresenter(new SettingsRepositoryImpl(ApplicationLoader.applicationContext, currentAccount));
+        presenter.attachView(this);
+        presenter.updateRows();
         getNotificationCenter().addObserver(this, NotificationCenter.reactionsDidLoad);
         getNotificationCenter().addObserver(this, NotificationCenter.currentUserPremiumStatusChanged);
         return super.onFragmentCreate();
@@ -141,26 +140,30 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
                 switch (getItemViewType(position)) {
                     case 1:
                         AvailableReactionCell reactionCell = (AvailableReactionCell) holder.itemView;
-                        TLRPC.TL_availableReaction react = getAvailableReactions().get(position - reactionsStartRow);
-                        reactionCell.bind(react, react.reaction.contains(MediaDataController.getInstance(currentAccount).getDoubleTapReaction()), currentAccount);
+                        List<TLRPC.TL_availableReaction> availableReactions = presenter.getAvailableReactions();
+                        if (availableReactions != null) {
+                            TLRPC.TL_availableReaction react = availableReactions.get(position - presenter.getReactionsStartRow());
+                            String doubleTap = presenter.getDoubleTapReaction();
+                            reactionCell.bind(react, doubleTap != null && react.reaction.contains(doubleTap), currentAccount);
+                        }
                         break;
                 }
             }
 
             @Override
             public int getItemCount() {
-                return rowCount + (premiumReactionRow < 0 ? getAvailableReactions().size() : 0) + 1;
+                return presenter.getItemCount();
             }
 
             @Override
             public int getItemViewType(int position) {
-                if (position == previewRow) {
+                if (position == presenter.getPreviewRow()) {
                     return 0;
                 }
-                if (position == infoRow) {
+                if (position == presenter.getInfoRow()) {
                     return 2;
                 }
-                if (position == premiumReactionRow) {
+                if (position == presenter.getPremiumReactionRow()) {
                     return 3;
                 }
                 if (position == getItemCount() - 1) {
@@ -172,12 +175,7 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
         listView.setOnItemClickListener((view, position) -> {
             if (view instanceof AvailableReactionCell) {
                 AvailableReactionCell cell = (AvailableReactionCell) view;
-                if (cell.locked && !getUserConfig().isPremium()) {
-                    showDialog(new PremiumFeatureBottomSheet(this, PremiumPreviewFragment.PREMIUM_FEATURE_REACTIONS, true));
-                    return;
-                }
-                MediaDataController.getInstance(currentAccount).setDoubleTapReaction(cell.react.reaction);
-                listView.getAdapter().notifyItemRangeChanged(0, listView.getAdapter().getItemCount());
+                presenter.onReactionClicked(cell.react, cell.locked);
             } else if (view instanceof SetDefaultReactionCell) {
                 showSelectStatusDialog((SetDefaultReactionCell) view);
             }
@@ -186,9 +184,34 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
         fragmentView = contentView = linaerLayout;
 
         updateColors();
-        updateRows();
 
         return contentView;
+    }
+
+    @Override
+    public void showPremiumFeature() {
+        showDialog(new PremiumFeatureBottomSheet(this, PremiumPreviewFragment.PREMIUM_FEATURE_REACTIONS, true));
+    }
+
+    @Override
+    public void updateRows() {
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void notifyDataSetChanged() {
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void notifyItemRangeChanged(int position, int count) {
+        if (listView != null && listView.getAdapter() != null) {
+            listView.getAdapter().notifyItemRangeChanged(position, count);
+        }
     }
 
     private class SetDefaultReactionCell extends FrameLayout {
@@ -211,7 +234,7 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
         }
 
         public void update(boolean animated) {
-            String reactionString = MediaDataController.getInstance(currentAccount).getDoubleTapReaction();
+            String reactionString = presenter.getDoubleTapReaction();
             if (reactionString != null && reactionString.startsWith("animated_")) {
                 try {
                     long documentId = Long.parseLong(reactionString.substring(9));
@@ -219,7 +242,7 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
                     return;
                 } catch (Exception ignore) {}
             }
-            TLRPC.TL_availableReaction reaction = MediaDataController.getInstance(currentAccount).getReactionsMap().get(reactionString);
+            TLRPC.TL_availableReaction reaction = presenter.getReaction(reactionString);
             if (reaction != null) {
                 imageDrawable.set(reaction.static_icon, animated);
             }
@@ -289,7 +312,7 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
                 if (documentId == null) {
                     return;
                 }
-                MediaDataController.getInstance(currentAccount).setDoubleTapReaction("animated_" + documentId);
+                presenter.selectDoubleTapReaction("animated_" + documentId);
                 if (cell != null) {
                     cell.update(true);
                 }
@@ -301,7 +324,7 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
 
             @Override
             protected void onReactionClick(ImageViewEmoji emoji, ReactionsLayoutInBubble.VisibleReaction reaction) {
-                MediaDataController.getInstance(currentAccount).setDoubleTapReaction(reaction.emojicon);
+                presenter.selectDoubleTapReaction(reaction.emojicon);
                 if (cell != null) {
                     cell.update(true);
                 }
@@ -311,19 +334,21 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
                 }
             }
         };
-        String selectedReaction = getMediaDataController().getDoubleTapReaction();
+        String selectedReaction = presenter.getDoubleTapReaction();
         if (selectedReaction != null && selectedReaction.startsWith("animated_")) {
             try {
                 popupLayout.setSelected(Long.parseLong(selectedReaction.substring(9)));
             } catch (Exception e) {}
         }
-        List<TLRPC.TL_availableReaction> availableReactions = getAvailableReactions();
+        List<TLRPC.TL_availableReaction> availableReactions = presenter.getAvailableReactions();
         ArrayList<ReactionsLayoutInBubble.VisibleReaction> reactions = new ArrayList<>(20);
-        for (int i = 0; i < availableReactions.size(); ++i) {
-            ReactionsLayoutInBubble.VisibleReaction reaction = new ReactionsLayoutInBubble.VisibleReaction();
-            TLRPC.TL_availableReaction tlreaction = availableReactions.get(i);
-            reaction.emojicon = tlreaction.reaction;
-            reactions.add(reaction);
+        if (availableReactions != null) {
+            for (int i = 0; i < availableReactions.size(); ++i) {
+                ReactionsLayoutInBubble.VisibleReaction reaction = new ReactionsLayoutInBubble.VisibleReaction();
+                TLRPC.TL_availableReaction tlreaction = availableReactions.get(i);
+                reaction.emojicon = tlreaction.reaction;
+                reactions.add(reaction);
+            }
         }
         popupLayout.setRecentReactions(reactions);
         popupLayout.setSaveState(3);
@@ -339,28 +364,14 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
         popup[0].dimBehind();
     }
 
-    private void updateRows() {
-        rowCount = 0;
-        previewRow = rowCount++;
-        infoRow = rowCount++;
-        if (UserConfig.getInstance(currentAccount).isPremium()) {
-            reactionsStartRow = -1;
-            premiumReactionRow = rowCount++;
-        } else {
-            premiumReactionRow = -1;
-            reactionsStartRow = rowCount;
-        }
-    }
-
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         getNotificationCenter().removeObserver(this, NotificationCenter.reactionsDidLoad);
         getNotificationCenter().removeObserver(this, NotificationCenter.currentUserPremiumStatusChanged);
-    }
-
-    private List<TLRPC.TL_availableReaction> getAvailableReactions() {
-        return getMediaDataController().getReactionsList();
     }
 
     @Override
@@ -393,10 +404,9 @@ public class ReactionsDoubleTapManageActivity extends BaseFragment implements No
     public void didReceivedNotification(int id, int account, Object... args) {
         if (account != currentAccount) return;
         if (id == NotificationCenter.reactionsDidLoad) {
-            listAdapter.notifyDataSetChanged();
+            presenter.onReactionsDidLoad();
         } else if (id == NotificationCenter.currentUserPremiumStatusChanged) {
-            updateRows();
-            listAdapter.notifyDataSetChanged();
+            presenter.onPremiumStatusChanged();
         }
     }
 }

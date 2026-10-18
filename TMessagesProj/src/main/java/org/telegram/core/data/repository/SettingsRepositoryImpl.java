@@ -4,13 +4,26 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
+import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.UserConfig;
+import org.telegram.tgnet.TLRPC;
+
+import java.util.HashMap;
+import java.util.List;
+
 public class SettingsRepositoryImpl implements SettingsRepository {
 
     private final Context applicationContext;
+    private final int accountNum;
     private static final String PREFS_NAME = "mainconfig";
 
     public SettingsRepositoryImpl(Context context) {
+        this(context, UserConfig.selectedAccount);
+    }
+
+    public SettingsRepositoryImpl(Context context, int accountNum) {
         this.applicationContext = context.getApplicationContext();
+        this.accountNum = accountNum;
     }
 
     @Override
@@ -43,5 +56,31 @@ public class SettingsRepositoryImpl implements SettingsRepository {
         SharedPreferences.Editor editor = prefs.edit();
         editor.putBoolean("quick_reply_allow_custom", allow);
         editor.apply();
+    }
+
+    @Override
+    public String getDoubleTapReaction() {
+        return MediaDataController.getInstance(accountNum).getDoubleTapReaction();
+    }
+
+    @Override
+    public void setDoubleTapReaction(String reaction) {
+        MediaDataController.getInstance(accountNum).setDoubleTapReaction(reaction);
+    }
+
+    @Override
+    public List<TLRPC.TL_availableReaction> getAvailableReactions() {
+        return MediaDataController.getInstance(accountNum).getReactionsList();
+    }
+
+    @Override
+    public TLRPC.TL_availableReaction getAvailableReaction(String key) {
+        HashMap<String, TLRPC.TL_availableReaction> map = MediaDataController.getInstance(accountNum).getReactionsMap();
+        return map != null ? map.get(key) : null;
+    }
+
+    @Override
+    public boolean isPremium() {
+        return UserConfig.getInstance(accountNum).isPremium();
     }
 }
