@@ -67,11 +67,14 @@ import org.telegram.ui.Components.RecyclerListView;
 
 import java.io.File;
 import java.io.IOException;
+import org.telegram.core.presenter.NotificationsSoundPresenter;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 
-public class NotificationsSoundActivity extends BaseFragment implements ChatAttachAlertDocumentLayout.DocumentSelectActivityDelegate, NotificationCenter.NotificationCenterDelegate {
+public class NotificationsSoundActivity extends BaseFragment implements ChatAttachAlertDocumentLayout.DocumentSelectActivityDelegate, NotificationCenter.NotificationCenterDelegate, NotificationsSoundPresenter.NotificationsSoundView {
 
+    private NotificationsSoundPresenter presenter;
     ArrayList<Tone> serverTones = new ArrayList<>();
     ArrayList<Tone> systemTones = new ArrayList<>();
     ArrayList<Tone> uploadingTones = new ArrayList<>();
@@ -133,30 +136,10 @@ public class NotificationsSoundActivity extends BaseFragment implements ChatAtta
             topicId = getArguments().getInt("topic_id", 0);
             currentType = getArguments().getInt("type", -1);
         }
-        String prefPath;
-        String prefDocId;
-        if (dialogId != 0) {
-            String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
-            prefDocId = "sound_document_id_" + key;
-            prefPath = "sound_path_" + key;
-        } else {
-            if (currentType == NotificationsController.TYPE_PRIVATE) {
-                prefPath = "GlobalSoundPath";
-                prefDocId = "GlobalSoundDocId";
-            } else if (currentType == NotificationsController.TYPE_GROUP) {
-                prefPath = "GroupSoundPath";
-                prefDocId = "GroupSoundDocId";
-            } else if (currentType == NotificationsController.TYPE_CHANNEL) {
-                prefPath = "ChannelSoundPath";
-                prefDocId = "ChannelSoundDocId";
-            } else {
-                throw new RuntimeException("Unsupported type");
-            }
-        }
-
-        SharedPreferences preferences = getNotificationsSettings();
-        long documentId = preferences.getLong(prefDocId, 0);
-        String localUri = preferences.getString(prefPath, "NoSound");
+        presenter = new NotificationsSoundPresenter(currentAccount);
+        presenter.attachView(this);
+        long documentId = presenter.getSoundDocumentId(dialogId, topicId, currentType);
+        String localUri = presenter.getSoundPath(dialogId, topicId, currentType);
 
         startSelectedTone = new Tone();
         if (documentId != 0) {
@@ -262,20 +245,8 @@ public class NotificationsSoundActivity extends BaseFragment implements ChatAtta
                 }
                 getMediaDataController().ringtoneDataStore.saveTones();
 
-                for (int i = 0; i < documentsToRemove.size(); i++) {
-                    TLRPC.Document document = documentsToRemove.get(i);
-                    TLRPC.TL_account_saveRingtone req = new TLRPC.TL_account_saveRingtone();
-                    req.id = new TLRPC.TL_inputDocument();
-                    req.id.id = document.id;
-                    req.id.access_hash = document.access_hash;
-                    req.id.file_reference = document.file_reference;
-                    if (req.id.file_reference == null) {
-                        req.id.file_reference = new byte[0];
-                    }
-                    req.unsave = true;
-                    getConnectionsManager().sendRequest(req, (response, error) -> {
-
-                    });
+                if (presenter != null) {
+                    presenter.deleteServerTones(documentsToRemove);
                 }
                 hideActionMode();
                 updateRows();
@@ -551,8 +522,8 @@ public class NotificationsSoundActivity extends BaseFragment implements ChatAtta
 
     @Override
     public void didSelectFiles(ArrayList<String> files, String caption, ArrayList<MessageObject> fmessages, boolean notify, int scheduleDate) {
-        for (int i = 0; i < files.size(); i++) {
-            getMediaDataController().uploadRingtone(files.get(i));
+        if (presenter != null) {
+            presenter.uploadRingtones(files);
         }
         getNotificationCenter().postNotificationName(NotificationCenter.onUserRingtonesUpdated);
     }
@@ -832,63 +803,23 @@ public class NotificationsSoundActivity extends BaseFragment implements ChatAtta
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        if (selectedTone != null && selectedToneChanged) {
-            SharedPreferences preferences = getNotificationsSettings();
-            SharedPreferences.Editor editor = preferences.edit();
-
-            String prefName;
-            String prefPath;
-            String prefDocId;
-
-            if (dialogId != 0) {
-                prefName = "sound_" + NotificationsController.getSharedPrefKey(dialogId, topicId);
-                prefPath = "sound_path_" + NotificationsController.getSharedPrefKey(dialogId, topicId);
-                prefDocId = "sound_document_id_" + NotificationsController.getSharedPrefKey(dialogId, topicId);
-                editor.putBoolean("sound_enabled_" + NotificationsController.getSharedPrefKey(dialogId, topicId), true);
-            } else {
-                if (currentType == NotificationsController.TYPE_PRIVATE) {
-                    prefName = "GlobalSound";
-                    prefPath = "GlobalSoundPath";
-                    prefDocId = "GlobalSoundDocId";
-                } else if (currentType == NotificationsController.TYPE_GROUP) {
-                    prefName = "GroupSound";
-                    prefPath = "GroupSoundPath";
-                    prefDocId = "GroupSoundDocId";
-                } else if (currentType == NotificationsController.TYPE_CHANNEL) {
-                    prefName = "ChannelSound";
-                    prefPath = "ChannelSoundPath";
-                    prefDocId = "ChannelSoundDocId";
-                } else {
-                    throw new RuntimeException("Unsupported type");
-                }
-            }
-
-            if (selectedTone.fromServer && selectedTone.document != null) {
-                editor.putLong(prefDocId, selectedTone.document.id);
-                editor.putString(prefName, selectedTone.title);
-                editor.putString(prefPath, "NoSound");
-            } else if (selectedTone.uri != null) {
-                editor.putString(prefName, selectedTone.title);
-                editor.putString(prefPath, selectedTone.uri);
-                editor.remove(prefDocId);
-            } else if (selectedTone.isSystemDefault) {
-                editor.putString(prefName, "Default");
-                editor.putString(prefPath, "Default");
-                editor.remove(prefDocId);
-            } else {
-                editor.putString(prefName, "NoSound");
-                editor.putString(prefPath, "NoSound");
-                editor.remove(prefDocId);
-            }
-
-            editor.apply();
-            if (dialogId != 0) {
-                getNotificationsController().updateServerNotificationsSettings(dialogId, topicId);
-            } else {
-                getNotificationsController().updateServerNotificationsSettings(currentType);
-                getNotificationCenter().postNotificationName(NotificationCenter.notificationsSettingsUpdated);
-            }
+        if (selectedTone != null && selectedToneChanged && presenter != null) {
+            presenter.saveSound(dialogId, topicId, currentType, selectedTone.fromServer, selectedTone.document, selectedTone.title, selectedTone.uri, selectedTone.isSystemDefault);
         }
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onTonesLoaded() {
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onSoundSaved() {
     }
 
     public void startDocumentSelectActivity() {
