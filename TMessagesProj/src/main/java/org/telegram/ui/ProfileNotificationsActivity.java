@@ -62,6 +62,7 @@ import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Cells.UserCell2;
 import org.telegram.ui.Components.AlertsCreator;
+import org.telegram.core.presenter.ProfileNotificationsPresenter;
 import org.telegram.ui.Components.ChatAvatarContainer;
 import org.telegram.ui.Components.Forum.ForumUtilities;
 import org.telegram.ui.Components.LayoutHelper;
@@ -69,8 +70,9 @@ import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 
-public class ProfileNotificationsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ProfileNotificationsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ProfileNotificationsPresenter.ProfileNotificationsView {
 
+    private ProfileNotificationsPresenter presenter;
     private RecyclerListView listView;
     private ListAdapter adapter;
     private AnimatorSet animatorSet;
@@ -136,6 +138,8 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new ProfileNotificationsPresenter(currentAccount);
+        presenter.attachView(this);
         rowCount = 0;
         if (addingException) {
             avatarRow = rowCount++;
@@ -211,28 +215,8 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
             customResetShadowRow = -1;
         }
 
-        boolean defaultEnabled = NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialogId);
-        if (addingException) {
-            notificationsEnabled = !defaultEnabled;
-        } else {
-            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-
-            String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
-            boolean hasOverride = preferences.contains("notify2_" + key);
-            int value = preferences.getInt("notify2_" + key, 0);
-            if (value == 0) {
-                if (hasOverride) {
-                    notificationsEnabled = true;
-                } else {
-                    notificationsEnabled = NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialogId);
-                }
-            } else if (value == 1) {
-                notificationsEnabled = true;
-            } else if (value == 2) {
-                notificationsEnabled = false;
-            } else {
-                notificationsEnabled = false;
-            }
+        if (presenter != null) {
+            presenter.loadSettings(dialogId, topicId, addingException);
         }
 
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.notificationsSettingsUpdated);
@@ -242,11 +226,35 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        if (!needReset) {
-            String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
-            MessagesController.getNotificationsSettings(currentAccount).edit().putBoolean("custom_" + key, true).apply();
+        if (presenter != null) {
+            presenter.handleFragmentDestroy(dialogId, topicId, needReset);
+            presenter.detachView();
         }
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.notificationsSettingsUpdated);
+    }
+
+    @Override
+    public void onSettingsLoaded(boolean enabled) {
+        this.notificationsEnabled = enabled;
+    }
+
+    @Override
+    public void onSettingsSaved() {
+    }
+
+    @Override
+    public void onCustomSettingsReset() {
+        finishFragment();
+        if (delegate != null) {
+            delegate.didRemoveException(dialogId);
+        }
+    }
+
+    @Override
+    public void onRingtoneSaved(int requestCode) {
+        if (adapter != null) {
+            adapter.notifyItemChanged(requestCode == 13 ? ringtoneRow : soundRow);
+        }
     }
 
     @Override
@@ -266,39 +274,15 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
             @Override
             public void onItemClick(int id) {
                 if (id == -1) {
-                    if (!addingException && notificationsEnabled) {
-                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                        preferences.edit().putInt("notify2_" + key, 0).apply();
+                    if (presenter != null) {
+                        presenter.handleBackPressed(dialogId, topicId, addingException, notificationsEnabled);
                     }
                 } else if (id == done_button) {
-                    SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                    SharedPreferences.Editor editor = preferences.edit();
-                    editor.putBoolean("custom_" + key, true);
-
-                    TLRPC.Dialog dialog = MessagesController.getInstance(currentAccount).dialogs_dict.get(dialogId);
-                    if (notificationsEnabled) {
-                        editor.putInt("notify2_" + key, 0);
-                        if (topicId == 0) {
-                            MessagesStorage.getInstance(currentAccount).setDialogFlags(dialogId, 0);
-                            if (dialog != null) {
-                                dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
-                            }
-                        }
-                    } else {
-                        editor.putInt("notify2_" + key, 2);
-                        if (topicId == 0) {
-                            NotificationsController.getInstance(currentAccount).removeNotificationsForDialog(dialogId);
-                            MessagesStorage.getInstance(currentAccount).setDialogFlags(dialogId, 1);
-                            if (dialog != null) {
-                                dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
-                                dialog.notify_settings.mute_until = Integer.MAX_VALUE;
-                            }
-                        }
+                    if (presenter != null) {
+                        presenter.saveSettings(dialogId, topicId, notificationsEnabled, addingException);
                     }
-
-                    editor.apply();
-                    NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(dialogId, topicId);
                     if (delegate != null) {
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
                         NotificationsSettingsActivity.NotificationException exception = new NotificationsSettingsActivity.NotificationException();
                         exception.did = dialogId;
                         exception.hasCustom = true;
@@ -369,11 +353,8 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                         .setMessage(LocaleController.getString(R.string.ResetCustomNotificationsAlert))
                         .setPositiveButton(LocaleController.getString(R.string.Reset), (d, w) -> {
                             needReset = true;
-
-                            MessagesController.getNotificationsSettings(currentAccount).edit().putBoolean("custom_" + key, false).remove("notify2_" + key).apply();
-                            finishFragment();
-                            if (delegate != null) {
-                                delegate.didRemoveException(dialogId);
+                            if (presenter != null) {
+                                presenter.resetCustomSettings(dialogId, topicId);
                             }
                         })
                         .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
@@ -521,31 +502,8 @@ public class ProfileNotificationsActivity extends BaseFragment implements Notifi
                 }
             }
 
-            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-            SharedPreferences.Editor editor = preferences.edit();
-
-            String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
-            if (requestCode == 12) {
-                if (name != null) {
-                    editor.putString("sound_" + key, name);
-                    editor.putString("sound_path_" + key, ringtone.toString());
-                } else {
-                    editor.putString("sound_" + key, "NoSound");
-                    editor.putString("sound_path_" + key, "NoSound");
-                }
-                getNotificationsController().deleteNotificationChannel(dialogId, topicId);
-            } else if (requestCode == 13) {
-                if (name != null) {
-                    editor.putString("ringtone_" + key, name);
-                    editor.putString("ringtone_path_" + key, ringtone.toString());
-                } else {
-                    editor.putString("ringtone_" + key, "NoSound");
-                    editor.putString("ringtone_path_" + key, "NoSound");
-                }
-            }
-            editor.apply();
-            if (adapter != null) {
-                adapter.notifyItemChanged(requestCode == 13 ? ringtoneRow : soundRow);
+            if (presenter != null) {
+                presenter.saveRingtoneOrSound(dialogId, topicId, requestCode, name, ringtone != null ? ringtone.toString() : null);
             }
         }
     }

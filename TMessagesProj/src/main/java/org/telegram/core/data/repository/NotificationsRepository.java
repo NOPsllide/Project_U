@@ -24,5 +24,25 @@ public interface NotificationsRepository {
 
     void resetNotificationsSettings();
 
+    void resetNotificationsSettings(Runnable onComplete);
+
+    void resetNotificationsSettings(int currentAccount, Runnable onComplete);
+
     void loadExceptions(ExceptionsCallback callback);
+
+    void loadExceptions(int currentAccount, ExceptionsCallback callback);
+
+    boolean isGlobalNotificationsEnabled(long dialogId);
+
+    boolean isNotificationsEnabled(long dialogId, int topicId, boolean addingException);
+
+    void saveDialogNotifications(long dialogId, int topicId, boolean enabled, boolean addingException, Runnable onComplete);
+
+    void resetCustomNotifications(long dialogId, int topicId, Runnable onComplete);
+
+    void saveRingtoneOrSound(long dialogId, int topicId, int requestCode, String name, String ringtonePath);
+
+    void applyCustomKey(long dialogId, int topicId);
+
+    void resetNotify2Key(long dialogId, int topicId);
 }

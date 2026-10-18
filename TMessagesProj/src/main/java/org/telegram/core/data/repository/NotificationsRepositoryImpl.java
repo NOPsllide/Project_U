@@ -324,4 +324,137 @@ public class NotificationsRepositoryImpl implements NotificationsRepository {
             });
         });
     }
+
+    @Override
+    public void resetNotificationsSettings(Runnable onComplete) {
+        resetNotificationsSettings(currentAccount, onComplete);
+    }
+
+    @Override
+    public void resetNotificationsSettings(int currentAccount, Runnable onComplete) {
+        TLRPC.TL_account_resetNotifySettings req = new TLRPC.TL_account_resetNotifySettings();
+        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            MessagesController.getInstance(currentAccount).enableJoined = true;
+            SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+            SharedPreferences.Editor editor = preferences.edit();
+            editor.clear();
+            editor.commit();
+            MessagesStorage.getInstance(currentAccount).updateMutedDialogsFiltersCounters();
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        }));
+    }
+
+    @Override
+    public void loadExceptions(int account, ExceptionsCallback callback) {
+        loadExceptions(callback);
+    }
+
+    @Override
+    public boolean isGlobalNotificationsEnabled(long dialogId) {
+        return NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialogId);
+    }
+
+    @Override
+    public boolean isNotificationsEnabled(long dialogId, int topicId, boolean addingException) {
+        boolean defaultEnabled = NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialogId);
+        if (addingException) {
+            return !defaultEnabled;
+        }
+        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        boolean hasOverride = preferences.contains("notify2_" + key);
+        int value = preferences.getInt("notify2_" + key, 0);
+        if (value == 0) {
+            if (hasOverride) {
+                return true;
+            }
+            return NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(dialogId);
+        } else if (value == 1) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public void saveDialogNotifications(long dialogId, int topicId, boolean enabled, boolean addingException, Runnable onComplete) {
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putBoolean("custom_" + key, true);
+        TLRPC.Dialog dialog = MessagesController.getInstance(currentAccount).dialogs_dict.get(dialogId);
+        if (enabled) {
+            editor.putInt("notify2_" + key, 0);
+            if (topicId == 0) {
+                MessagesStorage.getInstance(currentAccount).setDialogFlags(dialogId, 0);
+                if (dialog != null) {
+                    dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+                }
+            }
+        } else {
+            editor.putInt("notify2_" + key, 2);
+            if (topicId == 0) {
+                NotificationsController.getInstance(currentAccount).removeNotificationsForDialog(dialogId);
+                MessagesStorage.getInstance(currentAccount).setDialogFlags(dialogId, 1);
+                if (dialog != null) {
+                    dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+                    dialog.notify_settings.mute_until = Integer.MAX_VALUE;
+                }
+            }
+        }
+        editor.apply();
+        NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(dialogId, topicId);
+        if (onComplete != null) {
+            onComplete.run();
+        }
+    }
+
+    @Override
+    public void resetCustomNotifications(long dialogId, int topicId, Runnable onComplete) {
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        MessagesController.getNotificationsSettings(currentAccount).edit().putBoolean("custom_" + key, false).remove("notify2_" + key).apply();
+        if (onComplete != null) {
+            onComplete.run();
+        }
+    }
+
+    @Override
+    public void saveRingtoneOrSound(long dialogId, int topicId, int requestCode, String name, String ringtonePath) {
+        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+        SharedPreferences.Editor editor = preferences.edit();
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        if (requestCode == 12) {
+            if (name != null) {
+                editor.putString("sound_" + key, name);
+                editor.putString("sound_path_" + key, ringtonePath);
+            } else {
+                editor.putString("sound_" + key, "NoSound");
+                editor.putString("sound_path_" + key, "NoSound");
+            }
+            NotificationsController.getInstance(currentAccount).deleteNotificationChannel(dialogId, topicId);
+        } else if (requestCode == 13) {
+            if (name != null) {
+                editor.putString("ringtone_" + key, name);
+                editor.putString("ringtone_path_" + key, ringtonePath);
+            } else {
+                editor.putString("ringtone_" + key, "NoSound");
+                editor.putString("ringtone_path_" + key, "NoSound");
+            }
+        }
+        editor.apply();
+    }
+
+    @Override
+    public void applyCustomKey(long dialogId, int topicId) {
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        MessagesController.getNotificationsSettings(currentAccount).edit().putBoolean("custom_" + key, true).apply();
+    }
+
+    @Override
+    public void resetNotify2Key(long dialogId, int topicId) {
+        String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
+        MessagesController.getNotificationsSettings(currentAccount).edit().putInt("notify2_" + key, 0).apply();
+    }
 }
