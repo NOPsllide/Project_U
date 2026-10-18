@@ -56,8 +56,12 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class PollCreateActivity extends BaseFragment {
+import org.telegram.core.data.repository.PollRepository;
+import org.telegram.core.presenter.PollCreatePresenter;
 
+public class PollCreateActivity extends BaseFragment implements PollCreatePresenter.PollCreateView {
+
+    private PollCreatePresenter presenter = new PollCreatePresenter();
     private ActionBarMenuItem doneItem;
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -163,8 +167,15 @@ public class PollCreateActivity extends BaseFragment {
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter.attachView(this);
         updateRows();
         return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        presenter.detachView();
     }
 
     @Override
@@ -199,48 +210,13 @@ public class PollCreateActivity extends BaseFragment {
                         }
                         return;
                     }
-                    TLRPC.TL_messageMediaPoll poll = new TLRPC.TL_messageMediaPoll();
-                    poll.poll = new TLRPC.TL_poll();
-                    poll.poll.multiple_choice = multipleChoise;
-                    poll.poll.quiz = quizPoll;
-                    poll.poll.public_voters = !anonymousPoll;
-                    poll.poll.question = ChatAttachAlertPollLayout.getFixedString(questionString).toString();
-                    SerializedData serializedData = new SerializedData(10);
-                    for (int a = 0; a < answers.length; a++) {
-                        if (TextUtils.isEmpty(ChatAttachAlertPollLayout.getFixedString(answers[a]))) {
-                            continue;
-                        }
-                        TLRPC.TL_pollAnswer answer = new TLRPC.TL_pollAnswer();
-                        answer.text = ChatAttachAlertPollLayout.getFixedString(answers[a]).toString();
-                        answer.option = new byte[1];
-                        answer.option[0] = (byte) (48 + poll.poll.answers.size());
-                        poll.poll.answers.add(answer);
-                        if ((multipleChoise || quizPoll) && answersChecks[a]) {
-                            serializedData.writeByte(answer.option[0]);
-                        }
-                    }
-                    HashMap<String, String> params = new HashMap<>();
-                    params.put("answers", Utilities.bytesToHex(serializedData.toByteArray()));
-                    poll.results = new TLRPC.TL_pollResults();
-                    CharSequence solution = ChatAttachAlertPollLayout.getFixedString(solutionString);
-                    if (solution != null) {
-                        poll.results.solution = solution.toString();
-                        CharSequence[] message = new CharSequence[]{solution};
-                        ArrayList<TLRPC.MessageEntity> entities = getMediaDataController().getEntities(message, true);
-                        if (entities != null && !entities.isEmpty()) {
-                            poll.results.solution_entities = entities;
-                        }
-                        if (!TextUtils.isEmpty(poll.results.solution)) {
-                            poll.results.flags |= 16;
-                        }
-                    }
                     if (parentFragment.isInScheduleMode()) {
                         AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), parentFragment.getDialogId(), (notify, scheduleDate) -> {
-                            delegate.sendPoll(poll, params, notify, scheduleDate);
+                            presenter.buildAndSendPoll(multipleChoise, quizPoll, anonymousPoll, questionString, answers, answersChecks, solutionString, currentAccount, delegate, notify, scheduleDate);
                             finishFragment();
                         });
                     } else {
-                        delegate.sendPoll(poll, params, true, 0);
+                        presenter.buildAndSendPoll(multipleChoise, quizPoll, anonymousPoll, questionString, answers, answersChecks, solutionString, currentAccount, delegate, true, 0);
                         finishFragment();
                     }
                 }
@@ -403,36 +379,19 @@ public class PollCreateActivity extends BaseFragment {
     }
 
     private void checkDoneButton() {
-        boolean enabled = true;
-        int checksCount = 0;
-        if (quizPoll) {
-            for (int a = 0; a < answersChecks.length; a++) {
-                if (!TextUtils.isEmpty(ChatAttachAlertPollLayout.getFixedString(answers[a])) && answersChecks[a]) {
-                    checksCount++;
-                }
-            }
+        presenter.validatePoll(quizPoll, answersChecks, answers, questionString, solutionString);
+    }
+
+    @Override
+    public void updateDoneButton(boolean enabled, boolean allowClick) {
+        if (doneItem != null) {
+            doneItem.setEnabled(allowClick);
+            doneItem.setAlpha(enabled ? 1.0f : 0.5f);
         }
-        if (!TextUtils.isEmpty(ChatAttachAlertPollLayout.getFixedString(solutionString)) && solutionString.length() > ChatAttachAlertPollLayout.MAX_SOLUTION_LENGTH) {
-            enabled = false;
-        } else if (TextUtils.isEmpty(ChatAttachAlertPollLayout.getFixedString(questionString)) || questionString.length() > ChatAttachAlertPollLayout.MAX_QUESTION_LENGTH) {
-            enabled = false;
-        } else {
-            int count = 0;
-            for (int a = 0; a < answers.length; a++) {
-                if (!TextUtils.isEmpty(ChatAttachAlertPollLayout.getFixedString(answers[a]))) {
-                    if (answers[a].length() > ChatAttachAlertPollLayout.MAX_ANSWER_LENGTH) {
-                        count = 0;
-                        break;
-                    }
-                    count++;
-                }
-            }
-            if (count < 2 || quizPoll && checksCount < 1) {
-                enabled = false;
-            }
-        }
-        doneItem.setEnabled(quizPoll && checksCount == 0 || enabled);
-        doneItem.setAlpha(enabled ? 1.0f : 0.5f);
+    }
+
+    @Override
+    public void onPollCreated(PollRepository.PollData pollData) {
     }
 
     private void updateRows() {
