@@ -48,10 +48,6 @@ public class ArchivedStickersActivity extends BaseFragment implements Notificati
     private LinearLayoutManager layoutManager;
     private RecyclerListView listView;
 
-    private ArrayList<TLRPC.StickerSetCovered> sets = new ArrayList<>();
-    private boolean firstLoaded;
-    private boolean endReached;
-
     private boolean isInTransition;
     private Runnable doOnTransitionEnd;
 
@@ -64,8 +60,6 @@ public class ArchivedStickersActivity extends BaseFragment implements Notificati
 
     private int currentType;
 
-    private boolean loadingStickers;
-
     public ArchivedStickersActivity(int type) {
         super();
         currentType = type;
@@ -74,6 +68,7 @@ public class ArchivedStickersActivity extends BaseFragment implements Notificati
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter = new ArchivedStickersPresenter(new StickerRepositoryImpl(currentAccount), currentType);
         presenter.attachView(this);
         presenter.onCreate();
         updateRows();
