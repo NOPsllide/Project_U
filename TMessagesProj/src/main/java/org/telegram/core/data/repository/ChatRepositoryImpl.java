@@ -1,5 +1,6 @@
 package org.telegram.core.data.repository;
 
+import android.text.TextUtils;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.MediaDataController;
@@ -7,6 +8,7 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import java.util.ArrayList;
 import java.util.List;
@@ -121,5 +123,76 @@ public class ChatRepositoryImpl implements ChatRepository {
     @Override
     public int getCurrentTime() {
         return ConnectionsManager.getInstance(accountNum).getCurrentTime();
+    }
+
+    @Override
+    public int exportChatInvite(long chatId, String title, int expireDate, int usageLimit, boolean requestNeeded, LinkCallback callback) {
+        TLRPC.TL_messages_exportChatInvite req = new TLRPC.TL_messages_exportChatInvite();
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        req.legacy_revoke_permanent = false;
+        req.flags |= 1;
+        req.expire_date = expireDate;
+        req.flags |= 2;
+        req.usage_limit = usageLimit;
+        req.request_needed = requestNeeded;
+        if (req.request_needed) {
+            req.usage_limit = 0;
+        }
+        req.title = title;
+        if (!TextUtils.isEmpty(req.title)) {
+            req.flags |= 16;
+        }
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null) {
+                if (callback != null) {
+                    callback.onSuccess(response);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int editExportedChatInvite(long chatId, String link, String title, boolean titleChanged, int expireDate, boolean expireDateChanged, int usageLimit, boolean usageLimitChanged, boolean requestNeeded, boolean requestNeededChanged, LinkCallback callback) {
+        TLRPC.TL_messages_editExportedChatInvite req = new TLRPC.TL_messages_editExportedChatInvite();
+        req.link = link;
+        req.revoked = false;
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+
+        if (expireDateChanged) {
+            req.flags |= 1;
+            req.expire_date = expireDate;
+        }
+        if (usageLimitChanged) {
+            req.flags |= 2;
+            req.usage_limit = usageLimit;
+        }
+        if (requestNeededChanged) {
+            req.flags |= 8;
+            req.request_needed = requestNeeded;
+            if (req.request_needed) {
+                req.flags |= 2;
+                req.usage_limit = 0;
+            }
+        }
+        if (titleChanged) {
+            req.title = title;
+            req.flags |= 16;
+        }
+
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null) {
+                if (callback != null) {
+                    callback.onSuccess(response);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError(error);
+                }
+            }
+        }));
     }
 }

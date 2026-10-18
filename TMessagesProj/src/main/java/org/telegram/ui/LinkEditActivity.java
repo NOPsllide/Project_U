@@ -42,9 +42,10 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.SlideChooseView;
 
+import org.telegram.core.presenter.LinkEditPresenter;
 import java.util.ArrayList;
 
-public class LinkEditActivity extends BaseFragment {
+public class LinkEditActivity extends BaseFragment implements LinkEditPresenter.LinkEditView {
 
     public final static int CREATE_TYPE = 0;
     public final static int EDIT_TYPE = 1;
@@ -73,6 +74,8 @@ public class LinkEditActivity extends BaseFragment {
     private boolean finished;
     private boolean firstLayout = true;
 
+    private LinkEditPresenter presenter;
+
     public LinkEditActivity(int type, long chatId) {
         this.type = type;
         this.chatId = chatId;
@@ -86,10 +89,24 @@ public class LinkEditActivity extends BaseFragment {
     private Callback callback;
 
     AlertDialog progressDialog;
-    boolean loading;
     boolean scrollToStart;
     boolean scrollToEnd;
     int currentInviteDate;
+
+    @Override
+    public boolean onFragmentCreate() {
+        presenter = new LinkEditPresenter(currentAccount);
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
 
     @Override
     public View createView(Context context) {
@@ -282,7 +299,7 @@ public class LinkEditActivity extends BaseFragment {
             buttonTextView.setText(LocaleController.getString("SaveLink", R.string.SaveLink));
         }
 
-        TLRPC.Chat chatLocal = getMessagesController().getChat(chatId);
+        TLRPC.Chat chatLocal = presenter != null ? presenter.getChat(chatId) : getMessagesController().getChat(chatId);
         boolean hasApproveCell = false;
         if (chatLocal == null || chatLocal.username == null) {
             hasApproveCell = true;
@@ -334,7 +351,7 @@ public class LinkEditActivity extends BaseFragment {
 
         timeChooseView.setCallback(index -> {
             if (index < dispalyedDates.size()) {
-                long date = dispalyedDates.get(index) + getConnectionsManager().getCurrentTime();
+                long date = dispalyedDates.get(index) + (presenter != null ? presenter.getCurrentTime() : getConnectionsManager().getCurrentTime());
                 timeEditText.setText(LocaleController.formatDateAudio(date, false));
             } else {
                 timeEditText.setText("");
@@ -518,156 +535,19 @@ public class LinkEditActivity extends BaseFragment {
     }
 
     private void onCreateClicked(View view) {
-        if (loading) {
+        if (presenter == null || presenter.isLoading()) {
             return;
         }
 
+        String title = nameEditText.getText().toString();
         int timeIndex = timeChooseView.getSelectedIndex();
-        if (timeIndex < dispalyedDates.size() && dispalyedDates.get(timeIndex) < 0) {
-            AndroidUtilities.shakeView(timeEditText);
-            Vibrator vibrator = (Vibrator) timeEditText.getContext().getSystemService(Context.VIBRATOR_SERVICE);
-            if (vibrator != null) {
-                vibrator.vibrate(200);
-            }
-            return;
-        }
+        int usesIndex = usesChooseView.getSelectedIndex();
+        boolean requestNeeded = approveCell != null && approveCell.isChecked();
 
         if (type == CREATE_TYPE) {
-            if (progressDialog != null) {
-                progressDialog.dismiss();
-            }
-            loading = true;
-            progressDialog = new AlertDialog(getParentActivity(), 3);
-            progressDialog.showDelayed(500);
-            TLRPC.TL_messages_exportChatInvite req = new TLRPC.TL_messages_exportChatInvite();
-            req.peer = getMessagesController().getInputPeer(-chatId);
-            req.legacy_revoke_permanent = false;
-
-            int i = timeChooseView.getSelectedIndex();
-            req.flags |= 1;
-            if (i < dispalyedDates.size()) {
-                req.expire_date = dispalyedDates.get(i) + getConnectionsManager().getCurrentTime();
-            } else {
-                req.expire_date = 0;
-            }
-
-            i = usesChooseView.getSelectedIndex();
-            req.flags |= 2;
-            if (i < dispalyedUses.size()) {
-                req.usage_limit = dispalyedUses.get(i);
-            } else {
-                req.usage_limit = 0;
-            }
-
-            req.request_needed = approveCell != null && approveCell.isChecked();
-            if (req.request_needed) {
-                req.usage_limit = 0;
-            }
-
-            req.title = nameEditText.getText().toString();
-            if (!TextUtils.isEmpty(req.title)) {
-                req.flags |= 16;
-            }
-
-            getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                loading = false;
-                if (progressDialog != null) {
-                    progressDialog.dismiss();
-                }
-                if (error == null) {
-                    if (callback != null) {
-                        callback.onLinkCreated(response);
-                    }
-                    finishFragment();
-                } else {
-                    AlertsCreator.showSimpleAlert(LinkEditActivity.this, error.text);
-                }
-            }));
+            presenter.createLink(chatId, title, timeIndex, dispalyedDates, usesIndex, dispalyedUses, requestNeeded);
         } else if (type == EDIT_TYPE) {
-            if (progressDialog != null) {
-                progressDialog.dismiss();
-            }
-
-            TLRPC.TL_messages_editExportedChatInvite req = new TLRPC.TL_messages_editExportedChatInvite();
-            req.link = inviteToEdit.link;
-            req.revoked = false;
-            req.peer = getMessagesController().getInputPeer(-chatId);
-
-            boolean edited = false;
-
-            int i = timeChooseView.getSelectedIndex();
-            if (i < dispalyedDates.size()) {
-                if (currentInviteDate != dispalyedDates.get(i)) {
-                    req.flags |= 1;
-                    req.expire_date = dispalyedDates.get(i) + getConnectionsManager().getCurrentTime();
-                    edited = true;
-                }
-            } else {
-                if (currentInviteDate != 0) {
-                    req.flags |= 1;
-                    req.expire_date = 0;
-                    edited = true;
-                }
-            }
-
-            i = usesChooseView.getSelectedIndex();
-
-            if (i < dispalyedUses.size()) {
-                int newLimit = dispalyedUses.get(i);
-                if (inviteToEdit.usage_limit != newLimit) {
-                    req.flags |= 2;
-                    req.usage_limit = newLimit;
-                    edited = true;
-                }
-            } else {
-                if (inviteToEdit.usage_limit != 0) {
-                    req.flags |= 2;
-                    req.usage_limit = 0;
-                    edited = true;
-                }
-            }
-
-            if (inviteToEdit.request_needed != (approveCell != null && approveCell.isChecked())) {
-                req.flags |= 8;
-                req.request_needed = (approveCell != null && approveCell.isChecked());
-                if (req.request_needed) {
-                    req.flags |= 2;
-                    req.usage_limit = 0;
-                }
-                edited = true;
-            }
-
-            String newTitle = nameEditText.getText().toString();
-            if (!TextUtils.equals(inviteToEdit.title, newTitle)) {
-                req.title = newTitle;
-                req.flags |= 16;
-                edited = true;
-            }
-
-            if (edited) {
-                loading = true;
-                progressDialog = new AlertDialog(getParentActivity(), 3);
-                progressDialog.showDelayed(500);
-                getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                    loading = false;
-                    if (progressDialog != null) {
-                        progressDialog.dismiss();
-                    }
-                    if (error == null) {
-                        if (response instanceof TLRPC.TL_messages_exportedChatInvite) {
-                            inviteToEdit = (TLRPC.TL_chatInviteExported) ((TLRPC.TL_messages_exportedChatInvite) response).invite;
-                        }
-                        if (callback != null) {
-                            callback.onLinkEdited(inviteToEdit, response);
-                        }
-                        finishFragment();
-                    } else {
-                        AlertsCreator.showSimpleAlert(LinkEditActivity.this, error.text);
-                    }
-                }));
-            } else {
-                finishFragment();
-            }
+            presenter.editLink(chatId, inviteToEdit, title, timeIndex, dispalyedDates, currentInviteDate, usesIndex, dispalyedUses, requestNeeded);
         }
     }
 
@@ -705,7 +585,7 @@ public class LinkEditActivity extends BaseFragment {
         timeEditText.setText(LocaleController.formatDateAudio(selectedDate, false));
 
         int originDate = selectedDate;
-        selectedDate -= getConnectionsManager().getCurrentTime();
+        selectedDate -= (presenter != null ? presenter.getCurrentTime() : getConnectionsManager().getCurrentTime());
 
         int position = 0;
         boolean added = false;
@@ -879,5 +759,51 @@ public class LinkEditActivity extends BaseFragment {
         return themeDescriptions;
     }
 
+    @Override
+    public void shakeTime() {
+        AndroidUtilities.shakeView(timeEditText);
+        if (timeEditText != null && timeEditText.getContext() != null) {
+            Vibrator vibrator = (Vibrator) timeEditText.getContext().getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null) {
+                vibrator.vibrate(200);
+            }
+        }
+    }
 
+    @Override
+    public void showLoading(boolean show) {
+        if (progressDialog != null) {
+            progressDialog.dismiss();
+            progressDialog = null;
+        }
+        if (show && getParentActivity() != null) {
+            progressDialog = new AlertDialog(getParentActivity(), 3);
+            progressDialog.showDelayed(500);
+        }
+    }
+
+    @Override
+    public void onLinkCreated(TLObject response) {
+        if (callback != null) {
+            callback.onLinkCreated(response);
+        }
+    }
+
+    @Override
+    public void onLinkEdited(TLRPC.TL_chatInviteExported invite, TLObject response) {
+        inviteToEdit = invite;
+        if (callback != null) {
+            callback.onLinkEdited(inviteToEdit, response);
+        }
+    }
+
+    @Override
+    public void showError(String error) {
+        AlertsCreator.showSimpleAlert(LinkEditActivity.this, error);
+    }
+
+    @Override
+    public void finish() {
+        finishFragment();
+    }
 }

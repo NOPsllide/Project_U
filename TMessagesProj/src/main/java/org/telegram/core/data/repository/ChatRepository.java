@@ -1,5 +1,6 @@
 package org.telegram.core.data.repository;
 
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import java.util.List;
 
@@ -10,6 +11,15 @@ public interface ChatRepository {
         void onNewLinkGenerated(TLRPC.TL_chatInviteExported invite);
         void onError();
     }
+
+    interface LinkCallback {
+        void onSuccess(TLObject response);
+        void onError(TLRPC.TL_error error);
+    }
+
+    int exportChatInvite(long chatId, String title, int expireDate, int usageLimit, boolean requestNeeded, LinkCallback callback);
+
+    int editExportedChatInvite(long chatId, String link, String title, boolean titleChanged, int expireDate, boolean expireDateChanged, int usageLimit, boolean usageLimitChanged, boolean requestNeeded, boolean requestNeededChanged, LinkCallback callback);
 
     TLRPC.TL_chatInviteExported getExportedInvite(long chatId);
 
