@@ -30,7 +30,8 @@ import android.widget.TextView;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
-import org.telegram.messenger.StatsController;
+import org.telegram.core.data.repository.StatsRepository;
+import org.telegram.core.presenter.DataUsagePresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -49,7 +50,9 @@ import java.util.ArrayList;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class DataUsageActivity extends BaseFragment {
+public class DataUsageActivity extends BaseFragment implements DataUsagePresenter.DataUsageView {
+
+    private DataUsagePresenter presenter;
 
     private class ViewPage extends FrameLayout {
         private RecyclerListView listView;
@@ -83,6 +86,33 @@ public class DataUsageActivity extends BaseFragment {
 
     public DataUsageActivity() {
         super();
+    }
+
+    @Override
+    public boolean onFragmentCreate() {
+        super.onFragmentCreate();
+        presenter = new DataUsagePresenter(currentAccount);
+        presenter.attachView(this);
+        return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onStatsReset(int networkType) {
+        if (networkType == 0 && mobileAdapter != null) {
+            mobileAdapter.notifyDataSetChanged();
+        } else if (networkType == 1 && wifiAdapter != null) {
+            wifiAdapter.notifyDataSetChanged();
+        } else if (networkType == 2 && roamingAdapter != null) {
+            roamingAdapter.notifyDataSetChanged();
+        }
     }
 
     @Override
@@ -475,8 +505,7 @@ public class DataUsageActivity extends BaseFragment {
                     builder.setTitle(LocaleController.getString("ResetStatisticsAlertTitle", R.string.ResetStatisticsAlertTitle));
                     builder.setMessage(LocaleController.getString("ResetStatisticsAlert", R.string.ResetStatisticsAlert));
                     builder.setPositiveButton(LocaleController.getString("Reset", R.string.Reset), (dialogInterface, i) -> {
-                        StatsController.getInstance(currentAccount).resetStats(adapter.currentType);
-                        adapter.notifyDataSetChanged();
+                        presenter.resetStats(adapter.currentType);
                     });
                     builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                     AlertDialog dialog = builder.create();
@@ -752,35 +781,35 @@ public class DataUsageActivity extends BaseFragment {
                         textCell.setTag(Theme.key_windowBackgroundWhiteBlackText);
                         textCell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
                         if (position == callsSentRow || position == callsReceivedRow || position == callsBytesSentRow || position == callsBytesReceivedRow) {
-                            type = StatsController.TYPE_CALLS;
+                            type = StatsRepository.TYPE_CALLS;
                         } else if (position == messagesSentRow || position == messagesReceivedRow || position == messagesBytesSentRow || position == messagesBytesReceivedRow) {
-                            type = StatsController.TYPE_MESSAGES;
+                            type = StatsRepository.TYPE_MESSAGES;
                         } else if (position == photosSentRow || position == photosReceivedRow || position == photosBytesSentRow || position == photosBytesReceivedRow) {
-                            type = StatsController.TYPE_PHOTOS;
+                            type = StatsRepository.TYPE_PHOTOS;
                         } else if (position == audiosSentRow || position == audiosReceivedRow || position == audiosBytesSentRow || position == audiosBytesReceivedRow) {
-                            type = StatsController.TYPE_AUDIOS;
+                            type = StatsRepository.TYPE_AUDIOS;
                         } else if (position == videosSentRow || position == videosReceivedRow || position == videosBytesSentRow || position == videosBytesReceivedRow) {
-                            type = StatsController.TYPE_VIDEOS;
+                            type = StatsRepository.TYPE_VIDEOS;
                         } else if (position == filesSentRow || position == filesReceivedRow || position == filesBytesSentRow || position == filesBytesReceivedRow) {
-                            type = StatsController.TYPE_FILES;
+                            type = StatsRepository.TYPE_FILES;
                         } else {
-                            type = StatsController.TYPE_TOTAL;
+                            type = StatsRepository.TYPE_TOTAL;
                         }
                         if (position == callsSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("OutgoingCalls", R.string.OutgoingCalls), String.format("%d", StatsController.getInstance(currentAccount).getSentItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("OutgoingCalls", R.string.OutgoingCalls), String.format("%d", presenter.getSentItemsCount(currentType, type)), true);
                         } else if (position == callsReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("IncomingCalls", R.string.IncomingCalls), String.format("%d", StatsController.getInstance(currentAccount).getRecivedItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("IncomingCalls", R.string.IncomingCalls), String.format("%d", presenter.getReceivedItemsCount(currentType, type)), true);
                         } else if (position == callsTotalTimeRow) {
-                            String time = AndroidUtilities.formatShortDuration(StatsController.getInstance(currentAccount).getCallsTotalTime(currentType));
+                            String time = AndroidUtilities.formatShortDuration(presenter.getCallsTotalTime(currentType));
                             textCell.setTextAndValue(LocaleController.getString("CallsTotalTime", R.string.CallsTotalTime), time, false);
                         } else if (position == messagesSentRow || position == photosSentRow || position == videosSentRow || position == audiosSentRow || position == filesSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("CountSent", R.string.CountSent), String.format("%d", StatsController.getInstance(currentAccount).getSentItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("CountSent", R.string.CountSent), String.format("%d", presenter.getSentItemsCount(currentType, type)), true);
                         } else if (position == messagesReceivedRow || position == photosReceivedRow || position == videosReceivedRow || position == audiosReceivedRow || position == filesReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("CountReceived", R.string.CountReceived), String.format("%d", StatsController.getInstance(currentAccount).getRecivedItemsCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("CountReceived", R.string.CountReceived), String.format("%d", presenter.getReceivedItemsCount(currentType, type)), true);
                         } else if (position == messagesBytesSentRow || position == photosBytesSentRow || position == videosBytesSentRow || position == audiosBytesSentRow || position == filesBytesSentRow || position == callsBytesSentRow || position == totalBytesSentRow) {
-                            textCell.setTextAndValue(LocaleController.getString("BytesSent", R.string.BytesSent), AndroidUtilities.formatFileSize(StatsController.getInstance(currentAccount).getSentBytesCount(currentType, type)), true);
+                            textCell.setTextAndValue(LocaleController.getString("BytesSent", R.string.BytesSent), AndroidUtilities.formatFileSize(presenter.getSentBytesCount(currentType, type)), true);
                         } else if (position == messagesBytesReceivedRow || position == photosBytesReceivedRow || position == videosBytesReceivedRow || position == audiosBytesReceivedRow || position == filesBytesReceivedRow || position == callsBytesReceivedRow || position == totalBytesReceivedRow) {
-                            textCell.setTextAndValue(LocaleController.getString("BytesReceived", R.string.BytesReceived), AndroidUtilities.formatFileSize(StatsController.getInstance(currentAccount).getReceivedBytesCount(currentType, type)), position == callsBytesReceivedRow);
+                            textCell.setTextAndValue(LocaleController.getString("BytesReceived", R.string.BytesReceived), AndroidUtilities.formatFileSize(presenter.getReceivedBytesCount(currentType, type)), position == callsBytesReceivedRow);
                         }
                     }
                     break;
@@ -807,7 +836,7 @@ public class DataUsageActivity extends BaseFragment {
                 case 3: {
                     TextInfoPrivacyCell cell = (TextInfoPrivacyCell) holder.itemView;
                     cell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
-                    cell.setText(LocaleController.formatString("NetworkUsageSince", R.string.NetworkUsageSince, LocaleController.getInstance().formatterStats.format(StatsController.getInstance(currentAccount).getResetStatsDate(currentType))));
+                    cell.setText(LocaleController.formatString("NetworkUsageSince", R.string.NetworkUsageSince, LocaleController.getInstance().formatterStats.format(presenter.getResetStatsDate(currentType))));
                     break;
                 }
                 default:
