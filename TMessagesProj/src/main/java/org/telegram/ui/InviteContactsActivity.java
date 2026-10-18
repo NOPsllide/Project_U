@@ -61,14 +61,17 @@ import org.telegram.ui.Components.GroupCreateSpan;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 
+import org.telegram.core.presenter.InviteContactsPresenter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public class InviteContactsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, View.OnClickListener {
+public class InviteContactsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, View.OnClickListener, InviteContactsPresenter.InviteContactsView {
 
+    private InviteContactsPresenter presenter;
     private ScrollView scrollView;
     private SpansContainer spansContainer;
     private EditTextBoldCursor editText;
@@ -277,18 +280,18 @@ public class InviteContactsActivity extends BaseFragment implements Notification
     @Override
     public boolean onFragmentCreate() {
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.contactsImported);
-        fetchContacts();
-        if (!UserConfig.getInstance(currentAccount).contactsReimported) {
-            ContactsController.getInstance(currentAccount).forceImportContacts();
-            UserConfig.getInstance(currentAccount).contactsReimported = true;
-            UserConfig.getInstance(currentAccount).saveConfig(false);
-        }
+        presenter = new InviteContactsPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.onInit();
         return super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.contactsImported);
     }
 
@@ -446,12 +449,6 @@ public class InviteContactsActivity extends BaseFragment implements Notification
                 return false;
             }
         });
-        /*editText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                return actionId == EditorInfo.IME_ACTION_DONE && onDonePressed();
-            }
-        });*/
         editText.setOnKeyListener(new View.OnKeyListener() {
 
             private boolean wasEmpty;
@@ -579,26 +576,13 @@ public class InviteContactsActivity extends BaseFragment implements Notification
         counterView.setVisibility(View.INVISIBLE);
         frameLayout.addView(counterView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.BOTTOM));
         counterView.setOnClickListener(v -> {
-            try {
-                StringBuilder builder = new StringBuilder();
-                int num = 0;
-                for (int a = 0; a < allSpans.size(); a++) {
-                    ContactsController.Contact contact = allSpans.get(a).getContact();
-                    if (builder.length() != 0) {
-                        builder.append(';');
-                    }
-                    builder.append(contact.phones.get(0));
-                    if (a == 0 && allSpans.size() == 1) {
-                        num = contact.imported;
-                    }
-                }
-                Intent intent = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + builder.toString()));
-                intent.putExtra("sms_body", ContactsController.getInstance(currentAccount).getInviteText(num));
-                getParentActivity().startActivityForResult(intent, 500);
-            } catch (Exception e) {
-                FileLog.e(e);
+            ArrayList<ContactsController.Contact> contacts = new ArrayList<>();
+            for (int a = 0; a < allSpans.size(); a++) {
+                contacts.add(allSpans.get(a).getContact());
             }
-            finishFragment();
+            if (presenter != null) {
+                presenter.sendInvites(getParentActivity(), contacts);
+            }
         });
 
         LinearLayout linearLayout = new LinearLayout(context);
@@ -641,7 +625,9 @@ public class InviteContactsActivity extends BaseFragment implements Notification
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.contactsImported) {
-            fetchContacts();
+            if (presenter != null) {
+                presenter.loadContacts();
+            }
         }
     }
 
@@ -693,22 +679,20 @@ public class InviteContactsActivity extends BaseFragment implements Notification
         emptyView.setText(LocaleController.getString("NoContacts", R.string.NoContacts));
     }
 
-    private void fetchContacts() {
-        phoneBookContacts = new ArrayList<>(ContactsController.getInstance(currentAccount).phoneBookContacts);
-        Collections.sort(phoneBookContacts, (o1, o2) -> {
-            if (o1.imported > o2.imported) {
-                return -1;
-            } else if (o1.imported < o2.imported) {
-                return 1;
-            }
-            return 0;
-        });
+    @Override
+    public void showContacts(ArrayList<ContactsController.Contact> contacts) {
+        phoneBookContacts = contacts;
         if (emptyView != null) {
             emptyView.showTextView();
         }
         if (adapter != null) {
             adapter.notifyDataSetChanged();
         }
+    }
+
+    @Override
+    public void closeScreen() {
+        finishFragment();
     }
 
     public class InviteAdapter extends RecyclerListView.SelectionAdapter {

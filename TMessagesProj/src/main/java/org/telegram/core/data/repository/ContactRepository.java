@@ -1,5 +1,7 @@
 package org.telegram.core.data.repository;
 
+import android.content.Intent;
+import org.telegram.messenger.ContactsController;
 import org.telegram.tgnet.TLRPC;
 import java.util.ArrayList;
 
@@ -22,6 +24,12 @@ public interface ContactRepository {
     String getInviteText(int contactsCount);
 
     TLRPC.User getCurrentUser();
+
+    ArrayList<ContactsController.Contact> getSortedPhoneBookContacts();
+
+    void checkForceImportContacts();
+
+    Intent createInviteSmsIntent(ArrayList<ContactsController.Contact> contacts);
 
     interface ImportContactCallback {
         void onSuccess(TLRPC.TL_contacts_importedContacts res);

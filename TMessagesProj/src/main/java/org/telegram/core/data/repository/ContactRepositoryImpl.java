@@ -82,4 +82,48 @@ public class ContactRepositoryImpl implements ContactRepository {
     public TLRPC.User getCurrentUser() {
         return UserConfig.getInstance(accountNum).getCurrentUser();
     }
+
+    @Override
+    public ArrayList<ContactsController.Contact> getSortedPhoneBookContacts() {
+        ArrayList<ContactsController.Contact> contacts = new ArrayList<>(ContactsController.getInstance(accountNum).phoneBookContacts);
+        java.util.Collections.sort(contacts, (o1, o2) -> {
+            if (o1.imported > o2.imported) {
+                return -1;
+            } else if (o1.imported < o2.imported) {
+                return 1;
+            }
+            return 0;
+        });
+        return contacts;
+    }
+
+    @Override
+    public void checkForceImportContacts() {
+        if (!UserConfig.getInstance(accountNum).contactsReimported) {
+            ContactsController.getInstance(accountNum).forceImportContacts();
+            UserConfig.getInstance(accountNum).contactsReimported = true;
+            UserConfig.getInstance(accountNum).saveConfig(false);
+        }
+    }
+
+    @Override
+    public android.content.Intent createInviteSmsIntent(ArrayList<ContactsController.Contact> contacts) {
+        StringBuilder builder = new StringBuilder();
+        int num = 0;
+        for (int a = 0; a < contacts.size(); a++) {
+            ContactsController.Contact contact = contacts.get(a);
+            if (builder.length() != 0) {
+                builder.append(';');
+            }
+            if (contact.phones != null && !contact.phones.isEmpty()) {
+                builder.append(contact.phones.get(0));
+            }
+            if (a == 0 && contacts.size() == 1) {
+                num = contact.imported;
+            }
+        }
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:" + builder.toString()));
+        intent.putExtra("sms_body", ContactsController.getInstance(accountNum).getInviteText(num));
+        return intent;
+    }
 }
