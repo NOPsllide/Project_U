@@ -52,6 +52,7 @@ import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.core.presenter.ActionIntroPresenter;
 import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.ShareLocationDrawable;
 import org.telegram.ui.Components.URLSpanNoUnderline;
@@ -62,8 +63,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 
 @TargetApi(23)
-public class ActionIntroActivity extends BaseFragment implements LocationController.LocationFetchCallback {
+public class ActionIntroActivity extends BaseFragment implements LocationController.LocationFetchCallback, ActionIntroPresenter.ActionIntroView {
 
+    private ActionIntroPresenter presenter = new ActionIntroPresenter();
     private RLottieImageView imageView;
     private TextView buttonTextView;
     private TextView subtitleTextView;
@@ -117,6 +119,18 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
     public ActionIntroActivity(@ActionType int type) {
         super();
         currentType = type;
+    }
+
+    @Override
+    public boolean onFragmentCreate() {
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        presenter.detachView();
+        super.onFragmentDestroy();
     }
 
     @Override
@@ -605,68 +619,7 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
         int buttonRadiusDp = currentType == ACTION_TYPE_SET_PASSCODE || currentType == ACTION_TYPE_CHANGE_PHONE_NUMBER || currentType == ACTION_TYPE_CHANNEL_CREATE ? 6 : 4;
         buttonTextView.setBackground(Theme.AdaptiveRipple.filledRect(Theme.key_featuredStickers_addButton, buttonRadiusDp));
         viewGroup.addView(buttonTextView);
-        buttonTextView.setOnClickListener(v -> {
-            if (getParentActivity() == null) {
-                return;
-            }
-            switch (currentType) {
-                case ACTION_TYPE_QR_LOGIN: {
-                    if (getParentActivity() == null) {
-                        return;
-                    }
-                    if (Build.VERSION.SDK_INT >= 23 && getParentActivity().checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                        getParentActivity().requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
-                        return;
-                    }
-                    processOpenQrReader();
-                    break;
-                }
-                case ACTION_TYPE_CHANNEL_CREATE: {
-                    Bundle args = new Bundle();
-                    args.putInt("step", 0);
-                    presentFragment(new ChannelCreateActivity(args), true);
-                    break;
-                }
-                case ACTION_TYPE_SET_PASSCODE: {
-                    presentFragment(new PasscodeActivity(PasscodeActivity.TYPE_SETUP_CODE), true);
-                    break;
-                }
-                case ACTION_TYPE_NEARBY_LOCATION_ACCESS: {
-                    getParentActivity().requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, BasePermissionsActivity.REQUEST_CODE_GEOLOCATION);
-                    break;
-                }
-                case ACTION_TYPE_NEARBY_LOCATION_ENABLED: {
-                    try {
-                        getParentActivity().startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
-                    } catch (Exception e) {
-                        FileLog.e(e);
-                    }
-                    break;
-                }
-                case ACTION_TYPE_NEARBY_GROUP_CREATE: {
-                    if (currentGroupCreateAddress == null || currentGroupCreateLocation == null) {
-                        return;
-                    }
-                    Bundle args = new Bundle();
-                    long[] array = new long[]{getUserConfig().getClientUserId()};
-                    args.putLongArray("result", array);
-                    args.putInt("chatType", ChatObject.CHAT_TYPE_MEGAGROUP);
-                    args.putString("address", currentGroupCreateAddress);
-                    args.putParcelable("location", currentGroupCreateLocation);
-                    presentFragment(new GroupCreateFinalActivity(args), true);
-                    break;
-                }
-                case ACTION_TYPE_CHANGE_PHONE_NUMBER: {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                    builder.setTitle(LocaleController.getString("PhoneNumberChangeTitle", R.string.PhoneNumberChangeTitle));
-                    builder.setMessage(LocaleController.getString("PhoneNumberAlert", R.string.PhoneNumberAlert));
-                    builder.setPositiveButton(LocaleController.getString("Change", R.string.Change), (dialogInterface, i) -> presentFragment(new LoginActivity().changePhoneNumber(), true));
-                    builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                    showDialog(builder.create());
-                    break;
-                }
-            }
-        });
+        buttonTextView.setOnClickListener(v -> presenter.onActionButtonClick(currentType, getParentActivity(), getUserConfig().getClientUserId(), currentGroupCreateAddress, currentGroupCreateLocation));
 
         switch (currentType) {
             case ACTION_TYPE_CHANNEL_CREATE: {
@@ -748,13 +701,9 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
                     }
                 });
 
-                UserConfig userConfig = getUserConfig();
-                TLRPC.User user = getMessagesController().getUser(userConfig.clientUserId);
-                if (user == null) {
-                    user = userConfig.getCurrentUser();
-                }
-                if (user != null) {
-                    subtitleTextView.setText(LocaleController.formatString("PhoneNumberKeepButton", R.string.PhoneNumberKeepButton, PhoneFormat.getInstance().format("+" + user.phone)));
+                String formattedPhone = presenter.getCurrentUserPhone(currentAccount);
+                if (!TextUtils.isEmpty(formattedPhone)) {
+                    subtitleTextView.setText(LocaleController.formatString("PhoneNumberKeepButton", R.string.PhoneNumberKeepButton, formattedPhone));
                 }
                 subtitleTextView.setOnClickListener(v -> getParentLayout().closeLastFragment(true));
                 titleTextView.setText(LocaleController.getString("PhoneNumberChange2", R.string.PhoneNumberChange2));
@@ -776,34 +725,14 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
 
     @Override
     public void onLocationAddressAvailable(String address, String displayAddress, Location location) {
-        if (subtitleTextView == null) {
-            return;
-        }
-        subtitleTextView.setText(address);
-        currentGroupCreateAddress = address;
-        currentGroupCreateDisplayAddress = displayAddress;
-        currentGroupCreateLocation = location;
+        updateAddress(address, displayAddress, location);
     }
 
     @Override
     public void onResume() {
         super.onResume();
         if (currentType == ACTION_TYPE_NEARBY_LOCATION_ENABLED) {
-            boolean enabled = true;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                LocationManager lm = (LocationManager) ApplicationLoader.applicationContext.getSystemService(Context.LOCATION_SERVICE);
-                enabled = lm.isLocationEnabled();
-            } else if (Build.VERSION.SDK_INT >= 19) {
-                try {
-                    int mode = Settings.Secure.getInt(ApplicationLoader.applicationContext.getContentResolver(), Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF);
-                    enabled = (mode != Settings.Secure.LOCATION_MODE_OFF);
-                } catch (Throwable e) {
-                    FileLog.e(e);
-                }
-            }
-            if (enabled) {
-                presentFragment(new PeopleNearbyActivity(), true);
-            }
+            presenter.checkLocationEnabledOnResume();
         }
     }
 
@@ -830,7 +759,7 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
         currentGroupCreateDisplayAddress = displayAddress;
         currentGroupCreateLocation = location;
         if (location != null && address == null) {
-            LocationController.fetchLocationAddress(location, this);
+            presenter.fetchAddress(location, this);
         }
     }
 
@@ -840,33 +769,112 @@ public class ActionIntroActivity extends BaseFragment implements LocationControl
             return;
         }
         if (requestCode == BasePermissionsActivity.REQUEST_CODE_GEOLOCATION) {
-            if (grantResults != null && grantResults.length != 0) {
-                if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                    showDialog(AlertsCreator.createLocationRequiredDialog(getParentActivity(), false));
-                } else {
-                    AndroidUtilities.runOnUIThread(() -> presentFragment(new PeopleNearbyActivity(), true));
-                }
-            }
+            presenter.handleLocationPermissionResult(grantResults);
         } else if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                processOpenQrReader();
-            } else {
-                new AlertDialog.Builder(getParentActivity())
-                        .setMessage(AndroidUtilities.replaceTags(LocaleController.getString("QRCodePermissionNoCameraWithHint", R.string.QRCodePermissionNoCameraWithHint)))
-                        .setPositiveButton(LocaleController.getString("PermissionOpenSettings", R.string.PermissionOpenSettings), (dialogInterface, i) -> {
-                            try {
-                                Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                                intent.setData(Uri.parse("package:" + ApplicationLoader.applicationContext.getPackageName()));
-                                getParentActivity().startActivity(intent);
-                            } catch (Exception e) {
-                                FileLog.e(e);
-                            }
-                        })
-                        .setNegativeButton(LocaleController.getString("ContactsPermissionAlertNotNow", R.string.ContactsPermissionAlertNotNow), null)
-                        .setTopAnimation(R.raw.permission_request_camera, 72, false, Theme.getColor(Theme.key_dialogTopBackground))
-                        .show();
-            }
+            presenter.handleCameraPermissionResult(grantResults);
         }
+    }
+
+    @Override
+    public void navigateToChannelCreate(Bundle args) {
+        presentFragment(new ChannelCreateActivity(args), true);
+    }
+
+    @Override
+    public void navigateToPasscode() {
+        presentFragment(new PasscodeActivity(PasscodeActivity.TYPE_SETUP_CODE), true);
+    }
+
+    @Override
+    public void navigateToPeopleNearby() {
+        AndroidUtilities.runOnUIThread(() -> presentFragment(new PeopleNearbyActivity(), true));
+    }
+
+    @Override
+    public void navigateToGroupCreate(Bundle args) {
+        presentFragment(new GroupCreateFinalActivity(args), true);
+    }
+
+    @Override
+    public void showChangePhoneAlert() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(LocaleController.getString("PhoneNumberChangeTitle", R.string.PhoneNumberChangeTitle));
+        builder.setMessage(LocaleController.getString("PhoneNumberAlert", R.string.PhoneNumberAlert));
+        builder.setPositiveButton(LocaleController.getString("Change", R.string.Change), (dialogInterface, i) -> presentFragment(new LoginActivity().changePhoneNumber(), true));
+        builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    @Override
+    public void openQrReader() {
+        processOpenQrReader();
+    }
+
+    @Override
+    public void requestCameraPermission() {
+        if (getParentActivity() != null && Build.VERSION.SDK_INT >= 23) {
+            getParentActivity().requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void requestLocationPermission() {
+        if (getParentActivity() != null) {
+            getParentActivity().requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, BasePermissionsActivity.REQUEST_CODE_GEOLOCATION);
+        }
+    }
+
+    @Override
+    public void openLocationSettings() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        try {
+            getParentActivity().startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
+    @Override
+    public void showLocationRequiredAlert() {
+        if (getParentActivity() != null) {
+            showDialog(AlertsCreator.createLocationRequiredDialog(getParentActivity(), false));
+        }
+    }
+
+    @Override
+    public void showCameraPermissionAlert() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        new AlertDialog.Builder(getParentActivity())
+                .setMessage(AndroidUtilities.replaceTags(LocaleController.getString("QRCodePermissionNoCameraWithHint", R.string.QRCodePermissionNoCameraWithHint)))
+                .setPositiveButton(LocaleController.getString("PermissionOpenSettings", R.string.PermissionOpenSettings), (dialogInterface, i) -> {
+                    try {
+                        Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        intent.setData(Uri.parse("package:" + ApplicationLoader.applicationContext.getPackageName()));
+                        getParentActivity().startActivity(intent);
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                })
+                .setNegativeButton(LocaleController.getString("ContactsPermissionAlertNotNow", R.string.ContactsPermissionAlertNotNow), null)
+                .setTopAnimation(R.raw.permission_request_camera, 72, false, Theme.getColor(Theme.key_dialogTopBackground))
+                .show();
+    }
+
+    @Override
+    public void updateAddress(String address, String displayAddress, Location location) {
+        if (subtitleTextView != null) {
+            subtitleTextView.setText(address);
+        }
+        currentGroupCreateAddress = address;
+        currentGroupCreateDisplayAddress = displayAddress;
+        currentGroupCreateLocation = location;
     }
 
     public void setQrLoginDelegate(ActionIntroQRLoginDelegate actionIntroQRLoginDelegate) {
