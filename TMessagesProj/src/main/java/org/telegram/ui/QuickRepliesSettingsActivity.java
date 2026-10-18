@@ -9,13 +9,13 @@
 package org.telegram.ui;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import org.telegram.core.data.repository.SettingsRepositoryImpl;
+import org.telegram.core.presenter.QuickRepliesPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
@@ -35,10 +35,11 @@ import java.util.ArrayList;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class QuickRepliesSettingsActivity extends BaseFragment {
+public class QuickRepliesSettingsActivity extends BaseFragment implements QuickRepliesPresenter.View {
 
 	private ListAdapter listAdapter;
 	private RecyclerListView listView;
+	private QuickRepliesPresenter presenter;
 
 	private int reply1Row;
 	private int reply2Row;
@@ -53,6 +54,9 @@ public class QuickRepliesSettingsActivity extends BaseFragment {
 	@Override
 	public boolean onFragmentCreate() {
 		super.onFragmentCreate();
+
+		presenter = new QuickRepliesPresenter(new SettingsRepositoryImpl(getParentActivity()));
+		presenter.attachView(this);
 
 		rowCount = 0;
 		reply1Row = rowCount++;
@@ -99,23 +103,25 @@ public class QuickRepliesSettingsActivity extends BaseFragment {
 	@Override
 	public void onFragmentDestroy() {
 		super.onFragmentDestroy();
-		SharedPreferences prefs = getParentActivity().getSharedPreferences("mainconfig", Context.MODE_PRIVATE);
-		SharedPreferences.Editor editor = prefs.edit();
 		for (int i = 0; i < textCells.length; i++) {
 			if (textCells[i] != null) {
 				String text = textCells[i].getTextView().getText().toString();
-				if (!TextUtils.isEmpty(text))
-					editor.putString("quick_reply_msg" + (i + 1), text);
-				else
-					editor.remove("quick_reply_msg" + (i + 1));
+				presenter.saveQuickReply(i + 1, text);
 			}
 		}
-		editor.commit();
+		if (presenter != null) {
+			presenter.detachView();
+		}
 	}
 
 	@Override
 	public void onResume() {
 		super.onResume();
+		notifyDataSetChanged();
+	}
+
+	@Override
+	public void notifyDataSetChanged() {
 		if (listAdapter != null) {
 			listAdapter.notifyDataSetChanged();
 		}
@@ -152,28 +158,28 @@ public class QuickRepliesSettingsActivity extends BaseFragment {
 				case 11:
 				case 12: {
 					EditTextSettingsCell textCell = (EditTextSettingsCell) holder.itemView;
-					String settingsKey = null;
+					int replyIndex = 0;
 					String defValue = null;
 					if (position == reply1Row) {
-						settingsKey = "quick_reply_msg1";
+						replyIndex = 1;
 						defValue = LocaleController.getString("QuickReplyDefault1", R.string.QuickReplyDefault1);
 					} else if (position == reply2Row) {
-						settingsKey = "quick_reply_msg2";
+						replyIndex = 2;
 						defValue = LocaleController.getString("QuickReplyDefault2", R.string.QuickReplyDefault2);
 					} else if (position == reply3Row) {
-						settingsKey = "quick_reply_msg3";
+						replyIndex = 3;
 						defValue = LocaleController.getString("QuickReplyDefault3", R.string.QuickReplyDefault3);
 					} else if (position == reply4Row) {
-						settingsKey = "quick_reply_msg4";
+						replyIndex = 4;
 						defValue = LocaleController.getString("QuickReplyDefault4", R.string.QuickReplyDefault4);
 					}
-					textCell.setTextAndHint(getParentActivity().getSharedPreferences("mainconfig", Context.MODE_PRIVATE).getString(settingsKey, ""), defValue, position != reply4Row);
+					textCell.setTextAndHint(presenter.getQuickReply(replyIndex), defValue, position != reply4Row);
 
 					break;
 				}
 				case 4: {
 					TextCheckCell cell = (TextCheckCell) holder.itemView;
-					cell.setTextAndCheck(LocaleController.getString("AllowCustomQuickReply", R.string.AllowCustomQuickReply), getParentActivity().getSharedPreferences("mainconfig", Context.MODE_PRIVATE).getBoolean("quick_reply_allow_custom", true), false);
+					cell.setTextAndCheck(LocaleController.getString("AllowCustomQuickReply", R.string.AllowCustomQuickReply), presenter.getAllowCustomQuickReply(), false);
 				}
 			}
 		}
