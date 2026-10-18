@@ -44,7 +44,11 @@ import java.util.HashMap;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class PhotoPickerSearchActivity extends BaseFragment {
+import org.telegram.core.presenter.PhotoPickerSearchPresenter;
+
+public class PhotoPickerSearchActivity extends BaseFragment implements PhotoPickerSearchPresenter.PhotoPickerSearchView {
+
+    private PhotoPickerSearchPresenter presenter;
 
     private static class ViewPage extends FrameLayout {
         private BaseFragment parentFragment;
@@ -86,13 +90,16 @@ public class PhotoPickerSearchActivity extends BaseFragment {
 
     public PhotoPickerSearchActivity(HashMap<Object, Object> selectedPhotos, ArrayList<Object> selectedPhotosOrder, int selectPhotoType, boolean allowCaption, ChatActivity chatActivity) {
         super();
-
+        presenter = new PhotoPickerSearchPresenter();
         imagesSearch = new PhotoPickerActivity(0, null, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity, false);
         gifsSearch = new PhotoPickerActivity(1, null, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity, false);
     }
 
     @Override
     public View createView(Context context) {
+        if (presenter != null) {
+            presenter.attachView(this);
+        }
         actionBar.setBackgroundColor(Theme.getColor(Theme.key_dialogBackground));
         actionBar.setTitleColor(Theme.getColor(Theme.key_dialogTextBlack));
         actionBar.setItemsColor(Theme.getColor(Theme.key_dialogTextBlack), false);
@@ -163,10 +170,8 @@ public class PhotoPickerSearchActivity extends BaseFragment {
                 viewPages[1].setVisibility(View.VISIBLE);
                 switchToCurrentSelectedMode(true);
                 animatingForward = forward;
-                if (id == 0) {
-                    searchItem.setSearchFieldHint(LocaleController.getString("SearchImagesTitle", R.string.SearchImagesTitle));
-                } else {
-                    searchItem.setSearchFieldHint(LocaleController.getString("SearchGifsTitle", R.string.SearchGifsTitle));
+                if (presenter != null) {
+                    presenter.selectTab(id);
                 }
             }
 
@@ -651,7 +656,6 @@ public class PhotoPickerSearchActivity extends BaseFragment {
 
         sizeNotifierFrameLayout.addView(actionBar, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-//        sizeNotifierFrameLayout.addView(imagesSearch.shadow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 3, Gravity.BOTTOM | Gravity.LEFT, 0, 0, 0, 48));
         sizeNotifierFrameLayout.addView(imagesSearch.frameLayout2, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.LEFT | Gravity.BOTTOM));
         sizeNotifierFrameLayout.addView(imagesSearch.writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 12, 10));
         sizeNotifierFrameLayout.addView(imagesSearch.selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -2, 9));
@@ -709,6 +713,9 @@ public class PhotoPickerSearchActivity extends BaseFragment {
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (imagesSearch != null) {
             imagesSearch.onFragmentDestroy();
         }
@@ -716,6 +723,28 @@ public class PhotoPickerSearchActivity extends BaseFragment {
             gifsSearch.onFragmentDestroy();
         }
         super.onFragmentDestroy();
+    }
+
+    @Override
+    public void onSearchHintChanged(String hint) {
+        if (searchItem != null) {
+            searchItem.setSearchFieldHint(hint);
+        }
+    }
+
+    @Override
+    public void onSearchTextChanged(String text) {
+        searchText(text);
+    }
+
+    @Override
+    public void onRecentSearchCleared() {
+        if (imagesSearch != null) {
+            imagesSearch.clearRecentSearch();
+        }
+        if (gifsSearch != null) {
+            gifsSearch.clearRecentSearch();
+        }
     }
 
     @Override
@@ -749,25 +778,39 @@ public class PhotoPickerSearchActivity extends BaseFragment {
         imagesSearch.setSearchDelegate(new PhotoPickerActivity.PhotoPickerActivitySearchDelegate() {
             @Override
             public void shouldSearchText(String text) {
-                searchText(text);
+                if (presenter != null) {
+                    presenter.onSearchText(text);
+                } else {
+                    searchText(text);
+                }
             }
 
             @Override
             public void shouldClearRecentSearch() {
-                imagesSearch.clearRecentSearch();
-                gifsSearch.clearRecentSearch();
+                if (presenter != null) {
+                    presenter.clearRecentSearch();
+                } else {
+                    onRecentSearchCleared();
+                }
             }
         });
         gifsSearch.setSearchDelegate(new PhotoPickerActivity.PhotoPickerActivitySearchDelegate() {
             @Override
             public void shouldSearchText(String text) {
-                searchText(text);
+                if (presenter != null) {
+                    presenter.onSearchText(text);
+                } else {
+                    searchText(text);
+                }
             }
 
             @Override
             public void shouldClearRecentSearch() {
-                imagesSearch.clearRecentSearch();
-                gifsSearch.clearRecentSearch();
+                if (presenter != null) {
+                    presenter.clearRecentSearch();
+                } else {
+                    onRecentSearchCleared();
+                }
             }
         });
     }
