@@ -1,29 +1,52 @@
 package org.telegram.ui;
 
-import android.app.Activity;
 import android.appwidget.AppWidgetManager;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
 
-import org.telegram.messenger.AccountInstance;
+import org.telegram.core.presenter.WidgetConfigPresenter;
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.FeedWidgetProvider;
 
-public class FeedWidgetConfigActivity extends ExternalActionActivity {
+public class FeedWidgetConfigActivity extends ExternalActionActivity implements WidgetConfigPresenter.WidgetConfigView {
 
+    private WidgetConfigPresenter presenter;
     private int creatingAppWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        presenter = new WidgetConfigPresenter();
+        presenter.attachView(this);
+        super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onWidgetConfigured(int appWidgetId) {
+        Intent resultValue = new Intent();
+        resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
+        setResult(RESULT_OK, resultValue);
+        finish();
+    }
+
+    @Override
+    public void onConfigurationCancelled() {
+        finish();
+    }
 
     @Override
     protected boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, int intentAccount, int state) {
         if (!checkPasscode(intent, isNew, restore, fromPassword, intentAccount, state)) {
             return false;
         }
-        Bundle extras = intent.getExtras();
-        if (extras != null) {
-            creatingAppWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
-        }
+        creatingAppWidgetId = presenter != null ? presenter.getAppWidgetId(intent) : AppWidgetManager.INVALID_APPWIDGET_ID;
         if (creatingAppWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             Bundle args = new Bundle();
             args.putBoolean("onlySelect", true);
@@ -32,21 +55,9 @@ public class FeedWidgetConfigActivity extends ExternalActionActivity {
             args.putBoolean("checkCanWrite", false);
             DialogsActivity fragment = new DialogsActivity(args);
             fragment.setDelegate((fragment1, dids, message, param) -> {
-                AccountInstance.getInstance(fragment1.getCurrentAccount()).getMessagesStorage().putWidgetDialogs(creatingAppWidgetId, dids);
-
-                SharedPreferences preferences = FeedWidgetConfigActivity.this.getSharedPreferences("shortcut_widget", Activity.MODE_PRIVATE);
-                SharedPreferences.Editor editor = preferences.edit();
-                editor.putInt("account" + creatingAppWidgetId, fragment1.getCurrentAccount());
-                editor.putLong("dialogId" + creatingAppWidgetId, dids.get(0).dialogId);
-                editor.commit();
-
-                AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(FeedWidgetConfigActivity.this);
-                FeedWidgetProvider.updateWidget(FeedWidgetConfigActivity.this, appWidgetManager, creatingAppWidgetId);
-
-                Intent resultValue = new Intent();
-                resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, creatingAppWidgetId);
-                setResult(RESULT_OK, resultValue);
-                finish();
+                if (presenter != null) {
+                    presenter.saveFeedWidget(FeedWidgetConfigActivity.this, fragment1.getCurrentAccount(), creatingAppWidgetId, dids);
+                }
             });
 
             if (AndroidUtilities.isTablet()) {
@@ -67,7 +78,11 @@ public class FeedWidgetConfigActivity extends ExternalActionActivity {
             }
             intent.setAction(null);
         } else {
-            finish();
+            if (presenter != null) {
+                presenter.cancel();
+            } else {
+                finish();
+            }
         }
         return true;
     }

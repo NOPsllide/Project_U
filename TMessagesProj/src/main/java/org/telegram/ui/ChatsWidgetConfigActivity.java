@@ -5,21 +5,48 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 
+import org.telegram.core.presenter.WidgetConfigPresenter;
 import org.telegram.messenger.AndroidUtilities;
 
-public class ChatsWidgetConfigActivity extends ExternalActionActivity {
+public class ChatsWidgetConfigActivity extends ExternalActionActivity implements WidgetConfigPresenter.WidgetConfigView {
 
+    private WidgetConfigPresenter presenter;
     private int creatingAppWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        presenter = new WidgetConfigPresenter();
+        presenter.attachView(this);
+        super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onWidgetConfigured(int appWidgetId) {
+        Intent resultValue = new Intent();
+        resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
+        setResult(RESULT_OK, resultValue);
+        finish();
+    }
+
+    @Override
+    public void onConfigurationCancelled() {
+        finish();
+    }
 
     @Override
     protected boolean handleIntent(Intent intent, boolean isNew, boolean restore, boolean fromPassword, int intentAccount, int state) {
         if (!checkPasscode(intent, isNew, restore, fromPassword, intentAccount, state)) {
             return false;
         }
-        Bundle extras = intent.getExtras();
-        if (extras != null) {
-            creatingAppWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
-        }
+        creatingAppWidgetId = presenter != null ? presenter.getAppWidgetId(intent) : AppWidgetManager.INVALID_APPWIDGET_ID;
         if (creatingAppWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             Bundle args = new Bundle();
             args.putBoolean("onlySelect", true);
@@ -27,10 +54,11 @@ public class ChatsWidgetConfigActivity extends ExternalActionActivity {
             args.putBoolean("allowSwitchAccount", true);
             EditWidgetActivity fragment = new EditWidgetActivity(EditWidgetActivity.TYPE_CHATS, creatingAppWidgetId);
             fragment.setDelegate(dialogs -> {
-                Intent resultValue = new Intent();
-                resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, creatingAppWidgetId);
-                setResult(RESULT_OK, resultValue);
-                finish();
+                if (presenter != null) {
+                    presenter.onWidgetFinished(creatingAppWidgetId);
+                } else {
+                    onWidgetConfigured(creatingAppWidgetId);
+                }
             });
 
             if (AndroidUtilities.isTablet()) {
@@ -51,7 +79,11 @@ public class ChatsWidgetConfigActivity extends ExternalActionActivity {
             }
             intent.setAction(null);
         } else {
-            finish();
+            if (presenter != null) {
+                presenter.cancel();
+            } else {
+                finish();
+            }
         }
         return true;
     }
