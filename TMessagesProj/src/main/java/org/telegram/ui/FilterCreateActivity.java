@@ -47,13 +47,16 @@ import org.telegram.ui.Cells.UserCell;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RLottieImageView;
+import org.telegram.core.presenter.FilterCreatePresenter;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 import java.util.Collections;
 
-public class FilterCreateActivity extends BaseFragment {
+public class FilterCreateActivity extends BaseFragment implements FilterCreatePresenter.FilterCreateView {
 
+    private FilterCreatePresenter presenter;
+    private AlertDialog progressDialog;
     private RecyclerListView listView;
     private ListAdapter adapter;
     private ActionBarMenuItem doneItem;
@@ -271,6 +274,40 @@ public class FilterCreateActivity extends BaseFragment {
     }
 
     @Override
+    public boolean onFragmentCreate() {
+        presenter = new FilterCreatePresenter(currentAccount);
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onFilterSaved() {
+        getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
+        finishFragment();
+    }
+
+    @Override
+    public void onFilterDeleted() {
+        try {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
+                progressDialog = null;
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        finishFragment();
+    }
+
+    @Override
     public View createView(Context context) {
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
@@ -363,27 +400,14 @@ public class FilterCreateActivity extends BaseFragment {
                 builder.setMessage(LocaleController.getString("FilterDeleteAlert", R.string.FilterDeleteAlert));
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                 builder.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialog, which) -> {
-                    AlertDialog progressDialog = null;
                     if (getParentActivity() != null) {
                         progressDialog = new AlertDialog(getParentActivity(), 3);
                         progressDialog.setCanCancel(false);
                         progressDialog.show();
                     }
-                    final AlertDialog progressDialogFinal = progressDialog;
-                    TLRPC.TL_messages_updateDialogFilter req = new TLRPC.TL_messages_updateDialogFilter();
-                    req.id = filter.id;
-                    getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                        try {
-                            if (progressDialogFinal != null) {
-                                progressDialogFinal.dismiss();
-                            }
-                        } catch (Exception e) {
-                            FileLog.e(e);
-                        }
-                        getMessagesController().removeFilter(filter);
-                        getMessagesStorage().deleteDialogFilter(filter);
-                        finishFragment();
-                    }));
+                    if (presenter != null) {
+                        presenter.deleteFilter(filter);
+                    }
                 });
                 AlertDialog alertDialog = builder.create();
                 showDialog(alertDialog);
@@ -552,10 +576,9 @@ public class FilterCreateActivity extends BaseFragment {
     }
 
     private void processDone() {
-        saveFilterToServer(filter, newFilterFlags, newFilterName, newAlwaysShow, newNeverShow, newPinned, creatingNew, false, hasUserChanged, true, true, this, () -> {
-            getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
-            finishFragment();
-        });
+        if (presenter != null) {
+            presenter.saveFilter(filter, newFilterFlags, newFilterName, newAlwaysShow, newNeverShow, newPinned, creatingNew, hasUserChanged, this);
+        }
     }
 
     private static void processAddFilter(MessagesController.DialogFilter filter, int newFilterFlags, String newFilterName, ArrayList<Long> newAlwaysShow, ArrayList<Long> newNeverShow, boolean creatingNew, boolean atBegin, boolean hasUserChanged, boolean resetUnreadCounter, BaseFragment fragment, Runnable onFinish) {
