@@ -47,6 +47,7 @@ import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Components.AlertsCreator;
+import org.telegram.core.presenter.DataSettingsPresenter;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.voip.VoIPHelper;
@@ -54,7 +55,9 @@ import org.telegram.ui.Components.voip.VoIPHelper;
 import java.io.File;
 import java.util.ArrayList;
 
-public class DataSettingsActivity extends BaseFragment {
+public class DataSettingsActivity extends BaseFragment implements DataSettingsPresenter.DataSettingsView {
+
+    private DataSettingsPresenter presenter;
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -107,7 +110,9 @@ public class DataSettingsActivity extends BaseFragment {
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
 
-        DownloadController.getInstance(currentAccount).loadAutoDownloadConfig(true);
+        presenter = new DataSettingsPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.loadAutoDownloadConfig(true);
 
         rowCount = 0;
         usageSectionRow = rowCount++;
@@ -149,7 +154,7 @@ public class DataSettingsActivity extends BaseFragment {
         }
         enableAllStreamInfoRow = rowCount++;
 
-        enableCacheStreamRow = -1;//rowCount++;
+        enableCacheStreamRow = -1;
         callsSectionRow = rowCount++;
         useLessDataForCallsRow = rowCount++;
         quickRepliesRow = rowCount++;
@@ -161,6 +166,14 @@ public class DataSettingsActivity extends BaseFragment {
         clearDraftsSectionRow = rowCount++;
 
         return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -201,9 +214,14 @@ public class DataSettingsActivity extends BaseFragment {
                 } else {
                     flag = SharedConfig.SAVE_TO_GALLERY_FLAG_PEER;
                 }
-                SharedConfig.toggleSaveToGalleryFlag(flag);
+                if (presenter != null) {
+                    presenter.toggleSaveToGalleryFlag(flag);
+                } else {
+                    SharedConfig.toggleSaveToGalleryFlag(flag);
+                }
                 TextCheckCell textCheckCell = (TextCheckCell) view;
-                textCheckCell.setChecked((SharedConfig.saveToGalleryFlags & flag) != 0);
+                int flags = presenter != null ? presenter.getSaveToGalleryFlags() : SharedConfig.saveToGalleryFlags;
+                textCheckCell.setChecked((flags & flag) != 0);
             } else if (position == mobileRow || position == roamingRow || position == wifiRow) {
                 if (LocaleController.isRTL && x <= AndroidUtilities.dp(76) || !LocaleController.isRTL && x >= view.getMeasuredWidth() - AndroidUtilities.dp(76)) {
                     boolean wasEnabled = listAdapter.isRowEnabled(resetDownloadRow);
@@ -211,47 +229,21 @@ public class DataSettingsActivity extends BaseFragment {
                     NotificationsCheckCell cell = (NotificationsCheckCell) view;
                     boolean checked = cell.isChecked();
 
-                    DownloadController.Preset preset;
-                    DownloadController.Preset defaultPreset;
-                    String key;
-                    String key2;
-                    int num;
+                    int type;
                     if (position == mobileRow) {
-                        preset = DownloadController.getInstance(currentAccount).mobilePreset;
-                        defaultPreset = DownloadController.getInstance(currentAccount).mediumPreset;
-                        key = "mobilePreset";
-                        key2 = "currentMobilePreset";
-                        num = 0;
+                        type = 0;
                     } else if (position == wifiRow) {
-                        preset = DownloadController.getInstance(currentAccount).wifiPreset;
-                        defaultPreset = DownloadController.getInstance(currentAccount).highPreset;
-                        key = "wifiPreset";
-                        key2 = "currentWifiPreset";
-                        num = 1;
+                        type = 1;
                     } else {
-                        preset = DownloadController.getInstance(currentAccount).roamingPreset;
-                        defaultPreset = DownloadController.getInstance(currentAccount).lowPreset;
-                        key = "roamingPreset";
-                        key2 = "currentRoamingPreset";
-                        num = 2;
+                        type = 2;
                     }
-                    if (!checked && preset.enabled) {
-                        preset.set(defaultPreset);
-                    } else {
-                        preset.enabled = !preset.enabled;
-                    }
-                    SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                    editor.putString(key, preset.toString());
-                    editor.putInt(key2, 3);
-                    editor.commit();
 
-                    cell.setChecked(!checked);
+                    boolean newChecked = presenter != null ? presenter.toggleAutoDownload(type, checked) : !checked;
+                    cell.setChecked(newChecked);
                     RecyclerView.ViewHolder holder = listView.findContainingViewHolder(view);
                     if (holder != null) {
                         listAdapter.onBindViewHolder(holder, position);
                     }
-                    DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
-                    DownloadController.getInstance(currentAccount).savePresetToServer(num);
                     if (wasEnabled != listAdapter.isRowEnabled(resetDownloadRow)) {
                         listAdapter.notifyItemChanged(resetDownloadRow);
                     }
@@ -274,38 +266,9 @@ public class DataSettingsActivity extends BaseFragment {
                 builder.setTitle(LocaleController.getString("ResetAutomaticMediaDownloadAlertTitle", R.string.ResetAutomaticMediaDownloadAlertTitle));
                 builder.setMessage(LocaleController.getString("ResetAutomaticMediaDownloadAlert", R.string.ResetAutomaticMediaDownloadAlert));
                 builder.setPositiveButton(LocaleController.getString("Reset", R.string.Reset), (dialogInterface, i) -> {
-                    DownloadController.Preset preset;
-                    DownloadController.Preset defaultPreset;
-                    String key;
-
-                    SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                    for (int a = 0; a < 3; a++) {
-                        if (a == 0) {
-                            preset = DownloadController.getInstance(currentAccount).mobilePreset;
-                            defaultPreset = DownloadController.getInstance(currentAccount).mediumPreset;
-                            key = "mobilePreset";
-                        } else if (a == 1) {
-                            preset = DownloadController.getInstance(currentAccount).wifiPreset;
-                            defaultPreset = DownloadController.getInstance(currentAccount).highPreset;
-                            key = "wifiPreset";
-                        } else {
-                            preset = DownloadController.getInstance(currentAccount).roamingPreset;
-                            defaultPreset = DownloadController.getInstance(currentAccount).lowPreset;
-                            key = "roamingPreset";
-                        }
-                        preset.set(defaultPreset);
-                        preset.enabled = defaultPreset.isEnabled();
-                        editor.putInt("currentMobilePreset", DownloadController.getInstance(currentAccount).currentMobilePreset = 3);
-                        editor.putInt("currentWifiPreset", DownloadController.getInstance(currentAccount).currentWifiPreset = 3);
-                        editor.putInt("currentRoamingPreset", DownloadController.getInstance(currentAccount).currentRoamingPreset = 3);
-                        editor.putString(key, preset.toString());
+                    if (presenter != null) {
+                        presenter.resetAutoDownload();
                     }
-                    editor.commit();
-                    DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
-                    for (int a = 0; a < 3; a++) {
-                        DownloadController.getInstance(currentAccount).savePresetToServer(a);
-                    }
-                    listAdapter.notifyItemRangeChanged(mobileRow, 4);
                 });
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                 AlertDialog dialog = builder.create();
@@ -317,9 +280,9 @@ public class DataSettingsActivity extends BaseFragment {
             } else if (position == storageUsageRow) {
                 presentFragment(new CacheControlActivity());
             } else if (position == useLessDataForCallsRow) {
-                final SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+                int saving = presenter != null ? presenter.getVoipDataSaving() : MessagesController.getGlobalMainSettings().getInt("VoipDataSaving", VoIPHelper.getDataSavingDefault());
                 int selected = 0;
-                switch (preferences.getInt("VoipDataSaving", VoIPHelper.getDataSavingDefault())) {
+                switch (saving) {
                     case Instance.DATA_SAVING_NEVER:
                         selected = 0;
                         break;
@@ -355,7 +318,11 @@ public class DataSettingsActivity extends BaseFragment {
                                     break;
                             }
                             if (val != -1) {
-                                preferences.edit().putInt("VoipDataSaving", val).commit();
+                                if (presenter != null) {
+                                    presenter.setVoipDataSaving(val);
+                                } else {
+                                    MessagesController.getGlobalMainSettings().edit().putInt("VoipDataSaving", val).commit();
+                                }
                                 updateVoipUseLessData = true;
                             }
                             if (listAdapter != null) {
@@ -373,11 +340,12 @@ public class DataSettingsActivity extends BaseFragment {
                 linearLayout.setOrientation(LinearLayout.VERTICAL);
                 builder.setView(linearLayout);
 
+                String cacheDir = presenter != null ? presenter.getStorageCacheDir() : SharedConfig.storageCacheDir;
                 String dir = storageDirs.get(0).getAbsolutePath();
-                if (!TextUtils.isEmpty(SharedConfig.storageCacheDir)) {
+                if (!TextUtils.isEmpty(cacheDir)) {
                     for (int a = 0, N = storageDirs.size(); a < N; a++) {
                         String path = storageDirs.get(a).getAbsolutePath();
-                        if (path.startsWith(SharedConfig.storageCacheDir)) {
+                        if (path.startsWith(cacheDir)) {
                             dir = path;
                             break;
                         }
@@ -393,9 +361,13 @@ public class DataSettingsActivity extends BaseFragment {
                     cell.setTextAndValue(storageDir, storageDir.startsWith(dir));
                     linearLayout.addView(cell);
                     cell.setOnClickListener(v -> {
-                        SharedConfig.storageCacheDir = storageDir;
-                        SharedConfig.saveConfig();
-                        ImageLoader.getInstance().checkMediaPaths();
+                        if (presenter != null) {
+                            presenter.setStorageCacheDir(storageDir);
+                        } else {
+                            SharedConfig.storageCacheDir = storageDir;
+                            SharedConfig.saveConfig();
+                            ImageLoader.getInstance().checkMediaPaths();
+                        }
                         builder.getDismissRunnable().run();
                         listAdapter.notifyItemChanged(storageNumRow);
                     });
@@ -405,40 +377,68 @@ public class DataSettingsActivity extends BaseFragment {
             } else if (position == proxyRow) {
                 presentFragment(new ProxyListActivity());
             } else if (position == enableStreamRow) {
-                SharedConfig.toggleStreamMedia();
+                if (presenter != null) {
+                    presenter.toggleStreamMedia();
+                } else {
+                    SharedConfig.toggleStreamMedia();
+                }
                 TextCheckCell textCheckCell = (TextCheckCell) view;
-                textCheckCell.setChecked(SharedConfig.streamMedia);
+                textCheckCell.setChecked(presenter != null ? presenter.isStreamMediaEnabled() : SharedConfig.streamMedia);
             } else if (position == enableAllStreamRow) {
-                SharedConfig.toggleStreamAllVideo();
+                if (presenter != null) {
+                    presenter.toggleStreamAllVideo();
+                } else {
+                    SharedConfig.toggleStreamAllVideo();
+                }
                 TextCheckCell textCheckCell = (TextCheckCell) view;
-                textCheckCell.setChecked(SharedConfig.streamAllVideo);
+                textCheckCell.setChecked(presenter != null ? presenter.isStreamAllVideoEnabled() : SharedConfig.streamAllVideo);
             } else if (position == enableMkvRow) {
-                SharedConfig.toggleStreamMkv();
+                if (presenter != null) {
+                    presenter.toggleStreamMkv();
+                } else {
+                    SharedConfig.toggleStreamMkv();
+                }
                 TextCheckCell textCheckCell = (TextCheckCell) view;
-                textCheckCell.setChecked(SharedConfig.streamMkv);
+                textCheckCell.setChecked(presenter != null ? presenter.isStreamMkvEnabled() : SharedConfig.streamMkv);
             } else if (position == enableCacheStreamRow) {
-                SharedConfig.toggleSaveStreamMedia();
+                if (presenter != null) {
+                    presenter.toggleSaveStreamMedia();
+                } else {
+                    SharedConfig.toggleSaveStreamMedia();
+                }
                 TextCheckCell textCheckCell = (TextCheckCell) view;
-                textCheckCell.setChecked(SharedConfig.saveStreamMedia);
+                textCheckCell.setChecked(presenter != null ? presenter.isSaveStreamMediaEnabled() : SharedConfig.saveStreamMedia);
             } else if (position == quickRepliesRow) {
                 presentFragment(new QuickRepliesSettingsActivity());
             } else if (position == autoplayGifsRow) {
-                SharedConfig.toggleAutoplayGifs();
+                if (presenter != null) {
+                    presenter.toggleAutoplayGifs();
+                } else {
+                    SharedConfig.toggleAutoplayGifs();
+                }
                 if (view instanceof TextCheckCell) {
-                    ((TextCheckCell) view).setChecked(SharedConfig.autoplayGifs);
+                    ((TextCheckCell) view).setChecked(presenter != null ? presenter.isAutoplayGifsEnabled() : SharedConfig.autoplayGifs);
                 }
             } else if (position == autoplayVideoRow) {
-                SharedConfig.toggleAutoplayVideo();
+                if (presenter != null) {
+                    presenter.toggleAutoplayVideo();
+                } else {
+                    SharedConfig.toggleAutoplayVideo();
+                }
                 if (view instanceof TextCheckCell) {
-                    ((TextCheckCell) view).setChecked(SharedConfig.autoplayVideo);
+                    ((TextCheckCell) view).setChecked(presenter != null ? presenter.isAutoplayVideoEnabled() : SharedConfig.autoplayVideo);
                 }
             } else if (position == clearDraftsRow) {
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setTitle(LocaleController.getString("AreYouSureClearDraftsTitle", R.string.AreYouSureClearDraftsTitle));
                 builder.setMessage(LocaleController.getString("AreYouSureClearDrafts", R.string.AreYouSureClearDrafts));
                 builder.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialogInterface, i) -> {
-                    TLRPC.TL_messages_clearAllDrafts req = new TLRPC.TL_messages_clearAllDrafts();
-                    getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> getMediaDataController().clearAllDrafts(true)));
+                    if (presenter != null) {
+                        presenter.clearAllDrafts();
+                    } else {
+                        TLRPC.TL_messages_clearAllDrafts req = new TLRPC.TL_messages_clearAllDrafts();
+                        getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> getMediaDataController().clearAllDrafts(true)));
+                    }
                 });
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                 AlertDialog alertDialog = builder.create();
@@ -455,7 +455,11 @@ public class DataSettingsActivity extends BaseFragment {
 
     @Override
     protected void onDialogDismiss(Dialog dialog) {
-        DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
+        if (presenter != null) {
+            presenter.checkAutodownloadSettings();
+        } else {
+            DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
+        }
     }
 
     @Override
@@ -497,9 +501,9 @@ public class DataSettingsActivity extends BaseFragment {
                     if (position == storageUsageRow) {
                         textCell.setText(LocaleController.getString("StorageUsage", R.string.StorageUsage), true);
                     } else if (position == useLessDataForCallsRow) {
-                        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+                        int saving = presenter != null ? presenter.getVoipDataSaving() : MessagesController.getGlobalMainSettings().getInt("VoipDataSaving", VoIPHelper.getDataSavingDefault());
                         String value = null;
-                        switch (preferences.getInt("VoipDataSaving", VoIPHelper.getDataSavingDefault())) {
+                        switch (saving) {
                             case Instance.DATA_SAVING_NEVER:
                                 value = LocaleController.getString("UseLessDataNever", R.string.UseLessDataNever);
                                 break;
@@ -518,11 +522,12 @@ public class DataSettingsActivity extends BaseFragment {
                     } else if (position == dataUsageRow) {
                         textCell.setText(LocaleController.getString("NetworkUsage", R.string.NetworkUsage), storageNumRow != -1);
                     } else if (position == storageNumRow) {
+                        String cacheDir = presenter != null ? presenter.getStorageCacheDir() : SharedConfig.storageCacheDir;
                         String dir = storageDirs.get(0).getAbsolutePath();
-                        if (!TextUtils.isEmpty(SharedConfig.storageCacheDir)) {
+                        if (!TextUtils.isEmpty(cacheDir)) {
                             for (int a = 0, N = storageDirs.size(); a < N; a++) {
                                 String path = storageDirs.get(a).getAbsolutePath();
-                                if (path.startsWith(SharedConfig.storageCacheDir)) {
+                                if (path.startsWith(cacheDir)) {
                                     dir = path;
                                     break;
                                 }
@@ -564,23 +569,30 @@ public class DataSettingsActivity extends BaseFragment {
                 case 3: {
                     TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                     if (position == enableStreamRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("EnableStreaming", R.string.EnableStreaming), SharedConfig.streamMedia, enableAllStreamRow != -1);
+                        boolean enabled = presenter != null ? presenter.isStreamMediaEnabled() : SharedConfig.streamMedia;
+                        checkCell.setTextAndCheck(LocaleController.getString("EnableStreaming", R.string.EnableStreaming), enabled, enableAllStreamRow != -1);
                     } else if (position == enableCacheStreamRow) {
-                        //checkCell.setTextAndCheck(LocaleController.getString("CacheStreamFile", R.string.CacheStreamFile), SharedConfig.saveStreamMedia, true);
                     } else if (position == enableMkvRow) {
-                        checkCell.setTextAndCheck("(beta only) Show MKV as Video", SharedConfig.streamMkv, true);
+                        boolean enabled = presenter != null ? presenter.isStreamMkvEnabled() : SharedConfig.streamMkv;
+                        checkCell.setTextAndCheck("(beta only) Show MKV as Video", enabled, true);
                     } else if (position == enableAllStreamRow) {
-                        checkCell.setTextAndCheck("(beta only) Stream All Videos", SharedConfig.streamAllVideo, false);
+                        boolean enabled = presenter != null ? presenter.isStreamAllVideoEnabled() : SharedConfig.streamAllVideo;
+                        checkCell.setTextAndCheck("(beta only) Stream All Videos", enabled, false);
                     } else if (position == autoplayGifsRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("AutoplayGIF", R.string.AutoplayGIF), SharedConfig.autoplayGifs, true);
+                        boolean enabled = presenter != null ? presenter.isAutoplayGifsEnabled() : SharedConfig.autoplayGifs;
+                        checkCell.setTextAndCheck(LocaleController.getString("AutoplayGIF", R.string.AutoplayGIF), enabled, true);
                     } else if (position == autoplayVideoRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("AutoplayVideo", R.string.AutoplayVideo), SharedConfig.autoplayVideo, false);
+                        boolean enabled = presenter != null ? presenter.isAutoplayVideoEnabled() : SharedConfig.autoplayVideo;
+                        checkCell.setTextAndCheck(LocaleController.getString("AutoplayVideo", R.string.AutoplayVideo), enabled, false);
                     } else if (position == saveToGalleryPeerRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryPrivate", R.string.SaveToGalleryPrivate), (SharedConfig.saveToGalleryFlags & SharedConfig.SAVE_TO_GALLERY_FLAG_PEER) != 0, true);
+                        int flags = presenter != null ? presenter.getSaveToGalleryFlags() : SharedConfig.saveToGalleryFlags;
+                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryPrivate", R.string.SaveToGalleryPrivate), (flags & SharedConfig.SAVE_TO_GALLERY_FLAG_PEER) != 0, true);
                     } else if (position == saveToGalleryGroupsRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryGroups", R.string.SaveToGalleryGroups), (SharedConfig.saveToGalleryFlags & SharedConfig.SAVE_TO_GALLERY_FLAG_GROUP) != 0, true);
+                        int flags = presenter != null ? presenter.getSaveToGalleryFlags() : SharedConfig.saveToGalleryFlags;
+                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryGroups", R.string.SaveToGalleryGroups), (flags & SharedConfig.SAVE_TO_GALLERY_FLAG_GROUP) != 0, true);
                     } else if (position == saveToGalleryChannelsRow) {
-                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryChannels", R.string.SaveToGalleryChannels), (SharedConfig.saveToGalleryFlags & SharedConfig.SAVE_TO_GALLERY_FLAG_CHANNELS) != 0, false);
+                        int flags = presenter != null ? presenter.getSaveToGalleryFlags() : SharedConfig.saveToGalleryFlags;
+                        checkCell.setTextAndCheck(LocaleController.getString("SaveToGalleryChannels", R.string.SaveToGalleryChannels), (flags & SharedConfig.SAVE_TO_GALLERY_FLAG_CHANNELS) != 0, false);
                     }
                     break;
                 }
@@ -598,18 +610,28 @@ public class DataSettingsActivity extends BaseFragment {
                     StringBuilder builder = new StringBuilder();
                     DownloadController.Preset preset;
                     boolean enabled;
+                    int type = position == mobileRow ? 0 : (position == wifiRow ? 1 : 2);
                     if (position == mobileRow) {
                         text = LocaleController.getString("WhenUsingMobileData", R.string.WhenUsingMobileData);
-                        enabled = DownloadController.getInstance(currentAccount).mobilePreset.enabled;
-                        preset = DownloadController.getInstance(currentAccount).getCurrentMobilePreset();
                     } else if (position == wifiRow) {
                         text = LocaleController.getString("WhenConnectedOnWiFi", R.string.WhenConnectedOnWiFi);
-                        enabled = DownloadController.getInstance(currentAccount).wifiPreset.enabled;
-                        preset = DownloadController.getInstance(currentAccount).getCurrentWiFiPreset();
                     } else {
                         text = LocaleController.getString("WhenRoaming", R.string.WhenRoaming);
-                        enabled = DownloadController.getInstance(currentAccount).roamingPreset.enabled;
-                        preset = DownloadController.getInstance(currentAccount).getCurrentRoamingPreset();
+                    }
+                    if (presenter != null) {
+                        enabled = presenter.getPreset(type).enabled;
+                        preset = presenter.getCurrentPreset(type);
+                    } else {
+                        if (position == mobileRow) {
+                            enabled = DownloadController.getInstance(currentAccount).mobilePreset.enabled;
+                            preset = DownloadController.getInstance(currentAccount).getCurrentMobilePreset();
+                        } else if (position == wifiRow) {
+                            enabled = DownloadController.getInstance(currentAccount).wifiPreset.enabled;
+                            preset = DownloadController.getInstance(currentAccount).getCurrentWiFiPreset();
+                        } else {
+                            enabled = DownloadController.getInstance(currentAccount).roamingPreset.enabled;
+                            preset = DownloadController.getInstance(currentAccount).getCurrentRoamingPreset();
+                        }
                     }
 
                     boolean photos = false;
@@ -664,23 +686,26 @@ public class DataSettingsActivity extends BaseFragment {
                 TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                 int position = holder.getAdapterPosition();
                 if (position == enableCacheStreamRow) {
-                    checkCell.setChecked(SharedConfig.saveStreamMedia);
+                    checkCell.setChecked(presenter != null ? presenter.isSaveStreamMediaEnabled() : SharedConfig.saveStreamMedia);
                 } else if (position == enableStreamRow) {
-                    checkCell.setChecked(SharedConfig.streamMedia);
+                    checkCell.setChecked(presenter != null ? presenter.isStreamMediaEnabled() : SharedConfig.streamMedia);
                 } else if (position == enableAllStreamRow) {
-                    checkCell.setChecked(SharedConfig.streamAllVideo);
+                    checkCell.setChecked(presenter != null ? presenter.isStreamAllVideoEnabled() : SharedConfig.streamAllVideo);
                 } else if (position == enableMkvRow) {
-                    checkCell.setChecked(SharedConfig.streamMkv);
+                    checkCell.setChecked(presenter != null ? presenter.isStreamMkvEnabled() : SharedConfig.streamMkv);
                 } else if (position == autoplayGifsRow) {
-                    checkCell.setChecked(SharedConfig.autoplayGifs);
+                    checkCell.setChecked(presenter != null ? presenter.isAutoplayGifsEnabled() : SharedConfig.autoplayGifs);
                 } else if (position == autoplayVideoRow) {
-                    checkCell.setChecked(SharedConfig.autoplayVideo);
+                    checkCell.setChecked(presenter != null ? presenter.isAutoplayVideoEnabled() : SharedConfig.autoplayVideo);
                 }
             }
         }
 
         public boolean isRowEnabled(int position) {
             if (position == resetDownloadRow) {
+                if (presenter != null) {
+                    return presenter.isAutoDownloadResetEnabled();
+                }
                 DownloadController controller = DownloadController.getInstance(currentAccount);
                 return !controller.lowPreset.equals(controller.getCurrentRoamingPreset()) || controller.lowPreset.isEnabled() != controller.roamingPreset.enabled ||
                         !controller.mediumPreset.equals(controller.getCurrentMobilePreset()) || controller.mediumPreset.isEnabled() != controller.mobilePreset.enabled ||
@@ -785,5 +810,16 @@ public class DataSettingsActivity extends BaseFragment {
         themeDescriptions.add(new ThemeDescription(listView, 0, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText4));
 
         return themeDescriptions;
+    }
+
+    @Override
+    public void onAutoDownloadReset() {
+        if (listAdapter != null) {
+            listAdapter.notifyItemRangeChanged(mobileRow, 4);
+        }
+    }
+
+    @Override
+    public void onDraftsCleared() {
     }
 }
