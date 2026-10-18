@@ -5,6 +5,7 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 
+import org.telegram.core.presenter.MemberRequestsPresenter;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -13,18 +14,20 @@ import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Delegates.MemberRequestsDelegate;
 
-public class MemberRequestsActivity extends BaseFragment {
+public class MemberRequestsActivity extends BaseFragment implements MemberRequestsPresenter.MemberRequestsView {
 
     public static final int searchMenuItem = 0;
 
+    private final MemberRequestsPresenter presenter;
     private final MemberRequestsDelegate delegate;
 
     public MemberRequestsActivity(long chatId) {
+        presenter = new MemberRequestsPresenter(currentAccount, chatId);
         delegate = new MemberRequestsDelegate(this, getLayoutContainer(), chatId, true) {
             @Override
             protected void onImportersChanged(String query, boolean fromCache, boolean fromHide) {
                 if (fromHide) {
-                    actionBar.setSearchFieldText("");
+                    presenter.onImportersChanged(true);
                 } else {
                     super.onImportersChanged(query, fromCache, fromHide);
                 }
@@ -33,7 +36,25 @@ public class MemberRequestsActivity extends BaseFragment {
     }
 
     @Override
+    public void setSearchFieldText(String text) {
+        if (actionBar != null) {
+            actionBar.setSearchFieldText(text);
+        }
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
     public View createView(Context context) {
+        if (presenter != null) {
+            presenter.attachView(this);
+        }
         actionBar.setAllowOverlayTitle(true);
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
@@ -44,7 +65,7 @@ public class MemberRequestsActivity extends BaseFragment {
             }
         });
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
-        actionBar.setTitle(delegate.isChannel ? LocaleController.getString("SubscribeRequests", R.string.SubscribeRequests) : LocaleController.getString("MemberRequests", R.string.MemberRequests));
+        actionBar.setTitle(presenter.isChannel() ? LocaleController.getString("SubscribeRequests", R.string.SubscribeRequests) : LocaleController.getString("MemberRequests", R.string.MemberRequests));
 
         ActionBarMenu menu = actionBar.createMenu();
         ActionBarMenuItem searchItem = menu.addItem(searchMenuItem, R.drawable.ic_ab_search)
