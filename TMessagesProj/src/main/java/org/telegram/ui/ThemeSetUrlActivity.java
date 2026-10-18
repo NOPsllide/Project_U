@@ -52,6 +52,7 @@ import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.TextSettingsCell;
+import org.telegram.core.presenter.ThemeSetUrlPresenter;
 import org.telegram.ui.Cells.ThemePreviewMessagesCell;
 import org.telegram.ui.Cells.ThemesHorizontalListCell;
 import org.telegram.ui.Components.AlertsCreator;
@@ -61,7 +62,9 @@ import org.telegram.ui.Components.LayoutHelper;
 
 import java.util.ArrayList;
 
-public class ThemeSetUrlActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ThemeSetUrlActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ThemeSetUrlPresenter.ThemeSetUrlView {
+
+    private ThemeSetUrlPresenter presenter;
 
     private EditTextBoldCursor linkField;
     private EditTextBoldCursor nameField;
@@ -79,10 +82,6 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
     private EditTextBoldCursor editText;
     private LinearLayout linearLayoutTypeContainer;
 
-    private int checkReqId;
-    private String lastCheckName;
-    private Runnable checkRunnable;
-    private boolean lastNameAvailable;
     private boolean ignoreCheck;
     private CharSequence infoText;
     private boolean creatingNewTheme;
@@ -145,21 +144,25 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         info = accent != null ? accent.info : theme.info;
         currentAccount = accent != null ? accent.account : theme.account;
         creatingNewTheme = newTheme;
+        presenter = new ThemeSetUrlPresenter(currentAccount, theme, accent, newTheme);
     }
 
     @Override
     public boolean onFragmentCreate() {
-        getNotificationCenter().addObserver(this, NotificationCenter.themeUploadedToServer);
-        getNotificationCenter().addObserver(this, NotificationCenter.themeUploadError);
+        if (presenter != null) {
+            presenter.attachView(this);
+            presenter.onFragmentCreate();
+        }
         return super.onFragmentCreate();
-
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        getNotificationCenter().removeObserver(this, NotificationCenter.themeUploadedToServer);
-        getNotificationCenter().removeObserver(this, NotificationCenter.themeUploadError);
+        if (presenter != null) {
+            presenter.onFragmentDestroy();
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -419,118 +422,26 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.themeUploadedToServer) {
-            Theme.ThemeInfo theme = (Theme.ThemeInfo) args[0];
-            Theme.ThemeAccent accent = (Theme.ThemeAccent) args[1];
-            if (theme == themeInfo && accent == themeAccent && progressDialog != null) {
-                try {
-                    progressDialog.dismiss();
-                    progressDialog = null;
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-                Theme.applyTheme(themeInfo, false);
-                finishFragment();
-            }
-        } else if (id == NotificationCenter.themeUploadError) {
-            Theme.ThemeInfo theme = (Theme.ThemeInfo) args[0];
-            Theme.ThemeAccent accent = (Theme.ThemeAccent) args[1];
-            if (theme == themeInfo && accent == themeAccent && progressDialog != null) {
-                try {
-                    progressDialog.dismiss();
-                    progressDialog = null;
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-            }
+        if (presenter != null) {
+            presenter.didReceivedNotification(id, account, args);
         }
     }
 
     private boolean checkUrl(final String url, boolean alert) {
-        if (checkRunnable != null) {
-            AndroidUtilities.cancelRunOnUIThread(checkRunnable);
-            checkRunnable = null;
-            lastCheckName = null;
-            if (checkReqId != 0) {
-                ConnectionsManager.getInstance(currentAccount).cancelRequest(checkReqId, true);
-            }
+        if (presenter != null) {
+            return presenter.checkUrl(url, alert);
         }
-        lastNameAvailable = false;
-        if (url != null) {
-            if (url.startsWith("_") || url.endsWith("_")) {
-                setCheckText(LocaleController.getString("SetUrlInvalid", R.string.SetUrlInvalid), Theme.key_windowBackgroundWhiteRedText4);
-                return false;
-            }
-            for (int a = 0; a < url.length(); a++) {
-                char ch = url.charAt(a);
-                if (a == 0 && ch >= '0' && ch <= '9') {
-                    if (alert) {
-                        AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("SetUrlInvalidStartNumber", R.string.SetUrlInvalidStartNumber));
-                    } else {
-                        setCheckText(LocaleController.getString("SetUrlInvalidStartNumber", R.string.SetUrlInvalidStartNumber), Theme.key_windowBackgroundWhiteRedText4);
-                    }
-                    return false;
-                }
-                if (!(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch == '_')) {
-                    if (alert) {
-                        AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("SetUrlInvalid", R.string.SetUrlInvalid));
-                    } else {
-                        setCheckText(LocaleController.getString("SetUrlInvalid", R.string.SetUrlInvalid), Theme.key_windowBackgroundWhiteRedText4);
-                    }
-                    return false;
-                }
-            }
-        }
-        if (url == null || url.length() < 5) {
-            if (alert) {
-                AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("SetUrlInvalidShort", R.string.SetUrlInvalidShort));
-            } else {
-                setCheckText(LocaleController.getString("SetUrlInvalidShort", R.string.SetUrlInvalidShort), Theme.key_windowBackgroundWhiteRedText4);
-            }
-            return false;
-        }
-        if (url.length() > 64) {
-            if (alert) {
-                AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("SetUrlInvalidLong", R.string.SetUrlInvalidLong));
-            } else {
-                setCheckText(LocaleController.getString("SetUrlInvalidLong", R.string.SetUrlInvalidLong), Theme.key_windowBackgroundWhiteRedText4);
-            }
-            return false;
-        }
-
-        if (!alert) {
-            String currentUrl = info != null && info.slug != null ? info.slug : "";
-            if (url.equals(currentUrl)) {
-                setCheckText(LocaleController.formatString("SetUrlAvailable", R.string.SetUrlAvailable, url), Theme.key_windowBackgroundWhiteGreenText);
-                return true;
-            }
-
-            setCheckText(LocaleController.getString("SetUrlChecking", R.string.SetUrlChecking), Theme.key_windowBackgroundWhiteGrayText8);
-            lastCheckName = url;
-            checkRunnable = () -> {
-                TLRPC.TL_account_createTheme req = new TLRPC.TL_account_createTheme();
-                req.slug = url;
-                req.title = "";
-                req.document = new TLRPC.TL_inputDocumentEmpty();
-                checkReqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                    checkReqId = 0;
-                    if (lastCheckName != null && lastCheckName.equals(url)) {
-                        if (error == null || !"THEME_SLUG_INVALID".equals(error.text) && !"THEME_SLUG_OCCUPIED".equals(error.text)) {
-                            setCheckText(LocaleController.formatString("SetUrlAvailable", R.string.SetUrlAvailable, url), Theme.key_windowBackgroundWhiteGreenText);
-                            lastNameAvailable = true;
-                        } else {
-                            setCheckText(LocaleController.getString("SetUrlInUse", R.string.SetUrlInUse), Theme.key_windowBackgroundWhiteRedText4);
-                            lastNameAvailable = false;
-                        }
-                    }
-                }), ConnectionsManager.RequestFlagFailOnServerErrors);
-            };
-            AndroidUtilities.runOnUIThread(checkRunnable, 300);
-        }
-        return true;
+        return false;
     }
 
-    private void setCheckText(String text, String colorKey) {
+    private void saveTheme() {
+        if (presenter != null) {
+            presenter.saveTheme(nameField.getText().toString(), linkField.getText().toString());
+        }
+    }
+
+    @Override
+    public void showCheckText(String text, String colorKey) {
         if (TextUtils.isEmpty(text)) {
             checkInfoCell.setVisibility(View.GONE);
             if (creatingNewTheme) {
@@ -551,82 +462,48 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         }
     }
 
-    private void saveTheme() {
-        if (!checkUrl(linkField.getText().toString(), true)) {
-            return;
-        }
+    @Override
+    public void showSimpleAlert(String title, String message) {
+        AlertsCreator.showSimpleAlert(this, title, message);
+    }
+
+    @Override
+    public void showNameInvalidAlert() {
+        AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("ThemeNameInvalid", R.string.ThemeNameInvalid));
+    }
+
+    @Override
+    public void showProgressDialog(Runnable onCancel) {
         if (getParentActivity() == null) {
             return;
         }
-        if (nameField.length() == 0) {
-            AlertsCreator.showSimpleAlert(this, LocaleController.getString("Theme", R.string.Theme), LocaleController.getString("ThemeNameInvalid", R.string.ThemeNameInvalid));
-            return;
-        }
-        if (creatingNewTheme) {
-            String oldName = info.title;
-            String oldSlug = info.slug;
-            progressDialog = new AlertDialog(getParentActivity(), 3);
-            progressDialog.setOnCancelListener(dialog -> {
-
-            });
-            progressDialog.show();
-            themeInfo.name = info.title = nameField.getText().toString();
-            themeInfo.info.slug = linkField.getText().toString();
-            Theme.saveCurrentTheme(themeInfo, true, true, true);
-            return;
-        }
-        String currentUrl = info.slug == null ? "" : info.slug;
-        String currentName = info.title == null ? "" : info.title;
-        String newUrl = linkField.getText().toString();
-        String newName = nameField.getText().toString();
-        if (currentUrl.equals(newUrl) && currentName.equals(newName)) {
-            finishFragment();
-            return;
-        }
-
         progressDialog = new AlertDialog(getParentActivity(), 3);
-
-        final TLRPC.TL_account_updateTheme req = new TLRPC.TL_account_updateTheme();
-        TLRPC.TL_inputTheme inputTheme = new TLRPC.TL_inputTheme();
-        inputTheme.id = info.id;
-        inputTheme.access_hash = info.access_hash;
-        req.theme = inputTheme;
-        req.format = "android";
-        req.slug = newUrl;
-        req.flags |= 1;
-
-        req.title = newName;
-        req.flags |= 2;
-
-        final int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            if (response instanceof TLRPC.TL_theme) {
-                TLRPC.TL_theme theme = (TLRPC.TL_theme) response;
-                AndroidUtilities.runOnUIThread(() -> {
-                    try {
-                        progressDialog.dismiss();
-                        progressDialog = null;
-                    } catch (Exception e) {
-                        FileLog.e(e);
-                    }
-                    Theme.setThemeUploadInfo(themeInfo, themeAccent, theme, currentAccount, false);
-                    finishFragment();
-                });
-            } else {
-                AndroidUtilities.runOnUIThread(() -> {
-                    try {
-                        progressDialog.dismiss();
-                        progressDialog = null;
-                    } catch (Exception e) {
-                        FileLog.e(e);
-                    }
-                    AlertsCreator.processError(currentAccount, error, ThemeSetUrlActivity.this, req);
-                });
-            }
-        }, ConnectionsManager.RequestFlagFailOnServerErrors);
-        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
-
-        progressDialog.setOnCancelListener(dialog -> ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true));
+        if (onCancel != null) {
+            progressDialog.setOnCancelListener(dialog -> onCancel.run());
+        }
         progressDialog.show();
+    }
+
+    @Override
+    public void dismissProgressDialog() {
+        if (progressDialog != null) {
+            try {
+                progressDialog.dismiss();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            progressDialog = null;
+        }
+    }
+
+    @Override
+    public void showUpdateError(TLRPC.TL_error error, TLRPC.TL_account_updateTheme req) {
+        AlertsCreator.processError(currentAccount, error, ThemeSetUrlActivity.this, req);
+    }
+
+    @Override
+    public void finishScreen() {
+        finishFragment();
     }
 
     @Override
