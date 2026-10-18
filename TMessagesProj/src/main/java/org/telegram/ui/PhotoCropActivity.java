@@ -19,9 +19,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import org.telegram.core.presenter.PhotoCropPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.Bitmaps;
-import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
@@ -31,9 +31,7 @@ import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.LayoutHelper;
 
-import java.io.File;
-
-public class PhotoCropActivity extends BaseFragment {
+public class PhotoCropActivity extends BaseFragment implements PhotoCropPresenter.PhotoCropView {
 
     public interface PhotoEditActivityDelegate {
         void didFinishEdit(Bitmap bitmap);
@@ -353,6 +351,7 @@ public class PhotoCropActivity extends BaseFragment {
         }
     }
 
+    private PhotoCropPresenter presenter;
     private Bitmap imageToCrop;
     private BitmapDrawable drawable;
     private PhotoEditActivityDelegate delegate = null;
@@ -365,6 +364,12 @@ public class PhotoCropActivity extends BaseFragment {
 
     public PhotoCropActivity(Bundle args) {
         super(args);
+        presenter = new PhotoCropPresenter();
+    }
+
+    @Override
+    public void onBitmapLoaded(Bitmap bitmap) {
+        imageToCrop = bitmap;
     }
 
     @Override
@@ -372,22 +377,13 @@ public class PhotoCropActivity extends BaseFragment {
         if (imageToCrop == null) {
             String photoPath = getArguments().getString("photoPath");
             Uri photoUri = getArguments().getParcelable("photoUri");
-            if (photoPath == null && photoUri == null) {
-                return false;
-            }
-            if (photoPath != null) {
-                File f = new File(photoPath);
-                if (!f.exists()) {
-                    return false;
-                }
-            }
             int size;
             if (AndroidUtilities.isTablet()) {
                 size = AndroidUtilities.dp(520);
             } else {
                 size = Math.max(AndroidUtilities.displaySize.x, AndroidUtilities.displaySize.y);
             }
-            imageToCrop = ImageLoader.loadBitmap(photoPath, photoUri, size, size, true);
+            imageToCrop = presenter.loadBitmap(photoPath, photoUri, size);
             if (imageToCrop == null) {
                 return false;
             }
@@ -400,20 +396,20 @@ public class PhotoCropActivity extends BaseFragment {
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        if (bitmapKey != null) {
-            if (ImageLoader.getInstance().decrementUseCount(bitmapKey) && !ImageLoader.getInstance().isInMemCache(bitmapKey, false)) {
-                bitmapKey = null;
-            }
+        if (presenter != null) {
+            presenter.releaseImage(bitmapKey, imageToCrop, sameBitmap);
+            presenter.detachView();
         }
-        if (bitmapKey == null && imageToCrop != null && !sameBitmap) {
-            imageToCrop.recycle();
-            imageToCrop = null;
-        }
+        imageToCrop = null;
+        bitmapKey = null;
         drawable = null;
     }
 
     @Override
     public View createView(Context context) {
+        if (presenter != null) {
+            presenter.attachView(this);
+        }
         actionBar.setBackgroundColor(Theme.ACTION_BAR_MEDIA_PICKER_COLOR);
         actionBar.setItemsBackgroundColor(Theme.ACTION_BAR_PICKER_SELECTOR_COLOR, false);
         actionBar.setTitleColor(0xffffffff);
