@@ -57,6 +57,7 @@ import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.ContextProgressView;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.HintEditText;
+import org.telegram.core.presenter.NewContactPresenter;
 import org.telegram.ui.Components.LayoutHelper;
 
 import java.io.BufferedReader;
@@ -65,7 +66,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 
-public class NewContactActivity extends BaseFragment implements AdapterView.OnItemSelectedListener {
+public class NewContactActivity extends BaseFragment implements AdapterView.OnItemSelectedListener, NewContactPresenter.NewContactView {
+
+    private NewContactPresenter presenter;
 
     private LinearLayout contentLayout;
     private ActionBarMenuItem editDoneItem;
@@ -90,13 +93,27 @@ public class NewContactActivity extends BaseFragment implements AdapterView.OnIt
     private boolean ignoreOnPhoneChange;
     private int countryState;
     private boolean ignoreSelection;
-    private boolean donePressed;
     private String initialPhoneNumber;
     private boolean initialPhoneNumberWithCountryCode;
     private String initialFirstName;
     private String initialLastName;
 
     private final static int done_button = 1;
+
+    @Override
+    public boolean onFragmentCreate() {
+        presenter = new NewContactPresenter(currentAccount);
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
 
     @Override
     public View createView(Context context) {
@@ -109,76 +126,9 @@ public class NewContactActivity extends BaseFragment implements AdapterView.OnIt
                 if (id == -1) {
                     finishFragment();
                 } else if (id == done_button) {
-                    if (donePressed) {
-                        return;
+                    if (presenter != null) {
+                        presenter.addContact(firstNameField.getText().toString(), lastNameField.getText().toString(), codeField.getText().toString(), phoneField.getText().toString());
                     }
-                    if (firstNameField.length() == 0) {
-                        Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
-                        if (v != null) {
-                            v.vibrate(200);
-                        }
-                        AndroidUtilities.shakeView(firstNameField);
-                        return;
-                    }
-                    if (codeField.length() == 0) {
-                        Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
-                        if (v != null) {
-                            v.vibrate(200);
-                        }
-                        AndroidUtilities.shakeView(codeField);
-                        return;
-                    }
-                    if (phoneField.length() == 0) {
-                        Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
-                        if (v != null) {
-                            v.vibrate(200);
-                        }
-                        AndroidUtilities.shakeView(phoneField);
-                        return;
-                    }
-                    donePressed = true;
-                    showEditDoneProgress(true, true);
-                    final TLRPC.TL_contacts_importContacts req = new TLRPC.TL_contacts_importContacts();
-                    final TLRPC.TL_inputPhoneContact inputPhoneContact = new TLRPC.TL_inputPhoneContact();
-                    inputPhoneContact.first_name = firstNameField.getText().toString();
-                    inputPhoneContact.last_name = lastNameField.getText().toString();
-                    inputPhoneContact.phone = "+" + codeField.getText().toString() + phoneField.getText().toString();
-                    req.contacts.add(inputPhoneContact);
-                    int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-                        final TLRPC.TL_contacts_importedContacts res = (TLRPC.TL_contacts_importedContacts) response;
-                        AndroidUtilities.runOnUIThread(() -> {
-                            donePressed = false;
-                            if (res != null) {
-                                if (!res.users.isEmpty()) {
-                                    MessagesController.getInstance(currentAccount).putUsers(res.users, false);
-                                    MessagesController.openChatOrProfileWith(res.users.get(0), null, NewContactActivity.this, 1, true);
-                                } else {
-                                    if (getParentActivity() == null) {
-                                        return;
-                                    }
-                                    showEditDoneProgress(false, true);
-                                    AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
-                                    builder.setTitle(LocaleController.getString("ContactNotRegisteredTitle", R.string.ContactNotRegisteredTitle));
-                                    builder.setMessage(LocaleController.formatString("ContactNotRegistered", R.string.ContactNotRegistered, ContactsController.formatName(inputPhoneContact.first_name, inputPhoneContact.last_name)));
-                                    builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
-                                    builder.setPositiveButton(LocaleController.getString("Invite", R.string.Invite), (dialog, which) -> {
-                                        try {
-                                            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.fromParts("sms", inputPhoneContact.phone, null));
-                                            intent.putExtra("sms_body", ContactsController.getInstance(currentAccount).getInviteText(1));
-                                            getParentActivity().startActivityForResult(intent, 500);
-                                        } catch (Exception e) {
-                                            FileLog.e(e);
-                                        }
-                                    });
-                                    showDialog(builder.create());
-                                }
-                            } else {
-                                showEditDoneProgress(false, true);
-                                AlertsCreator.processError(currentAccount, error, NewContactActivity.this, req);
-                            }
-                        });
-                    }, ConnectionsManager.RequestFlagFailOnServerErrors);
-                    ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
                 }
             }
         });
@@ -710,7 +660,8 @@ public class NewContactActivity extends BaseFragment implements AdapterView.OnIt
 
     }
 
-    private void showEditDoneProgress(final boolean show, boolean animated) {
+    @Override
+    public void showEditDoneProgress(final boolean show, boolean animated) {
         if (editDoneItemAnimation != null) {
             editDoneItemAnimation.cancel();
         }
@@ -782,6 +733,70 @@ public class NewContactActivity extends BaseFragment implements AdapterView.OnIt
             editDoneItemAnimation.setDuration(150);
             editDoneItemAnimation.start();
         }
+    }
+
+    @Override
+    public void shakeFirstName() {
+        if (getParentActivity() != null) {
+            Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null) {
+                v.vibrate(200);
+            }
+        }
+        AndroidUtilities.shakeView(firstNameField);
+    }
+
+    @Override
+    public void shakeCode() {
+        if (getParentActivity() != null) {
+            Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null) {
+                v.vibrate(200);
+            }
+        }
+        AndroidUtilities.shakeView(codeField);
+    }
+
+    @Override
+    public void shakePhone() {
+        if (getParentActivity() != null) {
+            Vibrator v = (Vibrator) getParentActivity().getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null) {
+                v.vibrate(200);
+            }
+        }
+        AndroidUtilities.shakeView(phoneField);
+    }
+
+    @Override
+    public void openChatWithUser(TLRPC.User user) {
+        MessagesController.openChatOrProfileWith(user, null, this, 1, true);
+    }
+
+    @Override
+    public void showNotRegisteredDialog(String firstName, String lastName, String phone, String inviteText) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(LocaleController.getString("ContactNotRegisteredTitle", R.string.ContactNotRegisteredTitle));
+        builder.setMessage(LocaleController.formatString("ContactNotRegistered", R.string.ContactNotRegistered, ContactsController.formatName(firstName, lastName)));
+        builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
+        builder.setPositiveButton(LocaleController.getString("Invite", R.string.Invite), (dialog, which) -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.fromParts("sms", phone, null));
+                intent.putExtra("sms_body", inviteText);
+                getParentActivity().startActivityForResult(intent, 500);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        });
+        showDialog(builder.create());
+    }
+
+    @Override
+    public void showError(TLRPC.TL_error error, TLRPC.TL_contacts_importContacts req) {
+        AlertsCreator.processError(currentAccount, error, this, req);
     }
 
     @Override
