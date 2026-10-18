@@ -1,0 +1,18 @@
+# Build outputs
+*.iml
+.gradle/
+build/
+/local.properties
+/.idea/
+/captures
+.externalNativeBuild/
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NDK
+*.so
+*.o
+obj/
