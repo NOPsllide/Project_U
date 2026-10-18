@@ -23,6 +23,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.telegram.PhoneFormat.PhoneFormat;
+import org.telegram.core.data.repository.ContactRepositoryImpl;
+import org.telegram.core.presenter.ContactAddPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
@@ -44,7 +46,7 @@ import org.telegram.ui.Components.LayoutHelper;
 
 import java.util.ArrayList;
 
-public class ContactAddActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ContactAddActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ContactAddPresenter.View {
 
     private View doneButton;
     private EditTextBoldCursor firstNameField;
@@ -56,12 +58,10 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
     private TextView infoTextView;
     private CheckBoxCell checkBoxCell;
     private Theme.ResourcesProvider resourcesProvider;
+    private ContactAddPresenter presenter;
 
     private long user_id;
-    private boolean addContact;
-    private boolean needAddException;
     private String phone;
-
     private String firstNameFromCard;
     private String lastNameFromCard;
 
@@ -94,18 +94,21 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         phone = getArguments().getString("phone");
         firstNameFromCard = getArguments().getString("first_name_card");
         lastNameFromCard = getArguments().getString("last_name_card");
-        addContact = getArguments().getBoolean("addContact", false);
-        needAddException = MessagesController.getNotificationsSettings(currentAccount).getBoolean("dialog_bar_exception" + user_id, false);
-        TLRPC.User user = null;
-        if (user_id != 0) {
-            user = getMessagesController().getUser(user_id);
-        }
+        boolean addContact = getArguments().getBoolean("addContact", false);
+
+        presenter = new ContactAddPresenter(new ContactRepositoryImpl(currentAccount), user_id, addContact);
+        presenter.attachView(this);
+
+        TLRPC.User user = presenter.getUser();
         return user != null && super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         getNotificationCenter().removeObserver(this, NotificationCenter.updateInterfaces);
     }
 
@@ -115,7 +118,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon, resourcesProvider), false);
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
-        if (addContact) {
+        if (presenter.isAddContactMode()) {
             actionBar.setTitle(LocaleController.getString("NewContact", R.string.NewContact));
         } else {
             actionBar.setTitle(LocaleController.getString("EditName", R.string.EditName));
@@ -127,18 +130,11 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
                     finishFragment();
                 } else if (id == done_button) {
                     if (firstNameField.getText().length() != 0) {
-                        TLRPC.User user = getMessagesController().getUser(user_id);
-                        user.first_name = firstNameField.getText().toString();
-                        user.last_name = lastNameField.getText().toString();
-                        getContactsController().addContact(user, checkBoxCell != null && checkBoxCell.isChecked());
-                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
-                        preferences.edit().putInt("dialog_bar_vis3" + user_id, 3).commit();
-                        getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_NAME);
-                        getNotificationCenter().postNotificationName(NotificationCenter.peerSettingsDidLoad, user_id);
-                        finishFragment();
-                        if (delegate != null) {
-                            delegate.didAddToContacts();
-                        }
+                        presenter.saveContact(
+                            firstNameField.getText().toString(),
+                            lastNameField.getText().toString(),
+                            checkBoxCell != null && checkBoxCell.isChecked()
+                        );
                     }
                 }
             }
@@ -255,7 +251,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         });
         lastNameField.setText(lastNameFromCard);
 
-        TLRPC.User user = getMessagesController().getUser(user_id);
+        TLRPC.User user = presenter.getUser();
         if (user != null && firstNameFromCard == null && lastNameFromCard == null) {
             if (user.phone == null) {
                 if (phone != null) {
@@ -271,12 +267,13 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         infoTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText4));
         infoTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         infoTextView.setGravity(LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT);
-        if (addContact) {
-            if (!needAddException || TextUtils.isEmpty(getPhone())) {
+        if (presenter.isAddContactMode()) {
+            if (!presenter.needsAddException() || TextUtils.isEmpty(getPhone())) {
                 linearLayout.addView(infoTextView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 24, 18, 24, 0));
             }
 
-            if (needAddException) {
+            if (presenter.needsAddException()) {
+                TLRPC.User user = presenter.getUser();
                 checkBoxCell = new CheckBoxCell(getParentActivity(), 0);
                 checkBoxCell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
                 checkBoxCell.setText(LocaleController.formatString("SharePhoneNumberWith", R.string.SharePhoneNumberWith, UserObject.getFirstName(user)), "", true, false);
@@ -293,11 +290,23 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         delegate = contactAddActivityDelegate;
     }
 
+    @Override
+    public void closeScreen() {
+        finishFragment();
+    }
+
+    @Override
+    public void notifyContactAdded() {
+        if (delegate != null) {
+            delegate.didAddToContacts();
+        }
+    }
+
     private void updateAvatarLayout() {
         if (nameTextView == null) {
             return;
         }
-        TLRPC.User user = getMessagesController().getUser(user_id);
+        TLRPC.User user = presenter.getUser();
         if (user == null) {
             return;
         }
@@ -306,7 +315,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
             infoTextView.setText(AndroidUtilities.replaceTags(LocaleController.formatString("MobileHiddenExceptionInfo", R.string.MobileHiddenExceptionInfo, UserObject.getFirstName(user))));
         } else {
             nameTextView.setText(PhoneFormat.getInstance().format("+" + getPhone()));
-            if (needAddException) {
+            if (presenter.needsAddException()) {
                 infoTextView.setText(AndroidUtilities.replaceTags(LocaleController.formatString("MobileVisibleInfo", R.string.MobileVisibleInfo, UserObject.getFirstName(user))));
             }
         }
@@ -315,7 +324,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
     }
 
     private String getPhone() {
-        TLRPC.User user = getMessagesController().getUser(user_id);
+        TLRPC.User user = presenter.getUser();
         return user != null && !TextUtils.isEmpty(user.phone) ? user.phone : phone;
     }
 
@@ -362,7 +371,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
         ArrayList<ThemeDescription> themeDescriptions = new ArrayList<>();
         ThemeDescription.ThemeDescriptionDelegate cellDelegate = () -> {
             if (avatarImage != null) {
-                TLRPC.User user = getMessagesController().getUser(user_id);
+                TLRPC.User user = presenter.getUser();
                 if (user == null) {
                     return;
                 }
