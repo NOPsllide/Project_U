@@ -168,6 +168,9 @@ public class ChatReactionsPresenter {
     }
 
     public boolean isChannel() {
+        if (currentChat == null) {
+            return false;
+        }
         return ChatObject.isChannelAndNotMegaGroup(chatId, currentChat);
     }
 
