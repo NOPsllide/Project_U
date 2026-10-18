@@ -4,24 +4,43 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
-import org.telegram.ui.Components.voip.VoIPHelper;
 
-public class VoIPFeedbackActivity extends Activity {
-	@Override
-	protected void onCreate(Bundle savedInstanceState) {
-		getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-		super.onCreate(savedInstanceState);
+import org.telegram.core.presenter.VoIPFeedbackPresenter;
 
-		overridePendingTransition(0, 0);
+public class VoIPFeedbackActivity extends Activity implements VoIPFeedbackPresenter.VoIPFeedbackView {
 
-		setContentView(new View(this));
+    private VoIPFeedbackPresenter presenter;
 
-		VoIPHelper.showRateAlert(this, this::finish, getIntent().getBooleanExtra("call_video", false), getIntent().getLongExtra("call_id", 0), getIntent().getLongExtra("call_access_hash", 0), getIntent().getIntExtra("account", 0), false);
-	}
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        super.onCreate(savedInstanceState);
 
-	@Override
-	public void finish() {
-		super.finish();
-		overridePendingTransition(0, 0);
-	}
+        overridePendingTransition(0, 0);
+
+        setContentView(new View(this));
+
+        presenter = new VoIPFeedbackPresenter();
+        presenter.attachView(this);
+        presenter.showRateAlert(this, getIntent().getBooleanExtra("call_video", false), getIntent().getLongExtra("call_id", 0), getIntent().getLongExtra("call_access_hash", 0), getIntent().getIntExtra("account", 0));
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void finishActivity() {
+        finish();
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(0, 0);
+    }
 }
