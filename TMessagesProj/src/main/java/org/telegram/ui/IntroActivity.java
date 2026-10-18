@@ -13,7 +13,6 @@ import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.database.DataSetObserver;
 import android.graphics.Bitmap;
@@ -55,12 +54,10 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.GenericProvider;
 import org.telegram.messenger.Intro;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
-import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.TLRPC;
+import org.telegram.core.presenter.IntroPresenter;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
@@ -82,7 +79,10 @@ import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.egl.EGLSurface;
 import javax.microedition.khronos.opengles.GL10;
 
-public class IntroActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class IntroActivity extends BaseFragment implements IntroPresenter.IntroView {
+
+    private IntroPresenter presenter;
+    private AlertDialog loaderDialog;
     private final static int ICON_WIDTH_DP = 200, ICON_HEIGHT_DP = 150;
 
     private final Object pagerHeaderTag = new Object(),
@@ -119,7 +119,10 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
 
     @Override
     public boolean onFragmentCreate() {
-        MessagesController.getGlobalMainSettings().edit().putLong("intro_crashed_time", System.currentTimeMillis()).apply();
+        super.onFragmentCreate();
+        presenter = new IntroPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.recordCrashTime(System.currentTimeMillis());
 
         titles = new String[]{
                 LocaleController.getString("Page1Title", R.string.Page1Title),
@@ -198,8 +201,6 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
         themeFrameLayout.setOnClickListener(v -> {
             if (DrawerProfileCell.switchingTheme) return;
             DrawerProfileCell.switchingTheme = true;
-
-            // TODO: Generify this part, currently it's a clone of another theme switch toggle
             String dayThemeName = "Blue";
             String nightThemeName = "Night";
 
@@ -245,7 +246,7 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
                         if (eglThread != null && eglThread.isAlive() && eglThread.eglDisplay != null && eglThread.eglSurface != null) {
                             try {
                                 eglThread.egl10.eglSwapBuffers(eglThread.eglDisplay, eglThread.eglSurface);
-                            } catch (Exception ignored) {} // If display or surface already destroyed
+                            } catch (Exception ignored) {}
                         }
                     });
                     eglThread.postRunnable(eglThread.drawRunnable);
@@ -373,33 +374,16 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
             AlertDialog loaderDialog = new AlertDialog(v.getContext(), 3);
             loaderDialog.setCanCancel(false);
             loaderDialog.showDelayed(1000);
+            this.loaderDialog = loaderDialog;
 
-            NotificationCenter.getGlobalInstance().addObserver(new NotificationCenter.NotificationCenterDelegate() {
-                @Override
-                public void didReceivedNotification(int id, int account, Object... args) {
-                    if (id == NotificationCenter.reloadInterface) {
-                        loaderDialog.dismiss();
-
-                        NotificationCenter.getGlobalInstance().removeObserver(this, id);
-                        AndroidUtilities.runOnUIThread(()->{
-                            presentFragment(new LoginActivity().setIntroView(frameContainerView, startMessagingButton), true);
-                            destroyed = true;
-                        }, 100);
-                    }
-                }
-            }, NotificationCenter.reloadInterface);
-            LocaleController.getInstance().applyLanguage(localeInfo, true, false, currentAccount);
+            presenter.applyLanguage(localeInfo);
         });
 
         frameContainerView.addView(themeFrameLayout, LayoutHelper.createFrame(64, 64, Gravity.TOP | Gravity.RIGHT, 0, themeMargin, themeMargin, 0));
 
         fragmentView = scrollView;
 
-        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.suggestedLangpack);
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.configLoaded);
-        ConnectionsManager.getInstance(currentAccount).updateDcSettings();
-        LocaleController.getInstance().loadRemoteLanguages(currentAccount);
-        checkContinueText();
+        presenter.init();
         justCreated = true;
 
         updateColors(false);
@@ -433,6 +417,10 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
     public void onPause() {
         super.onPause();
 
+        if (presenter != null) {
+            presenter.resetCrashTime();
+        }
+
         if (!AndroidUtilities.isTablet()) {
             Activity activity = getParentActivity();
             if (activity != null) {
@@ -450,75 +438,33 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
         destroyed = true;
-        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.suggestedLangpack);
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.configLoaded);
-        MessagesController.getGlobalMainSettings().edit().putLong("intro_crashed_time", 0).apply();
-    }
-
-    private void checkContinueText() {
-        LocaleController.LocaleInfo englishInfo = null;
-        LocaleController.LocaleInfo systemInfo = null;
-        LocaleController.LocaleInfo currentLocaleInfo = LocaleController.getInstance().getCurrentLocaleInfo();
-        String systemLang = MessagesController.getInstance(currentAccount).suggestedLangCode;
-        if (systemLang == null || systemLang.equals("en") && LocaleController.getInstance().getSystemDefaultLocale().getLanguage() != null && !LocaleController.getInstance().getSystemDefaultLocale().getLanguage().equals("en")) {
-            systemLang = LocaleController.getInstance().getSystemDefaultLocale().getLanguage();
-            if (systemLang == null) {
-                systemLang = "en";
-            }
+        if (presenter != null) {
+            presenter.detachView();
         }
-
-        String arg = systemLang.contains("-") ? systemLang.split("-")[0] : systemLang;
-        String alias = LocaleController.getLocaleAlias(arg);
-        for (int a = 0; a < LocaleController.getInstance().languages.size(); a++) {
-            LocaleController.LocaleInfo info = LocaleController.getInstance().languages.get(a);
-            if (info.shortName.equals("en")) {
-                englishInfo = info;
-            }
-            if (info.shortName.replace("_", "-").equals(systemLang) || info.shortName.equals(arg) || info.shortName.equals(alias)) {
-                systemInfo = info;
-            }
-            if (englishInfo != null && systemInfo != null) {
-                break;
-            }
-        }
-        if (englishInfo == null || systemInfo == null || englishInfo == systemInfo) {
-            return;
-        }
-        TLRPC.TL_langpack_getStrings req = new TLRPC.TL_langpack_getStrings();
-        if (systemInfo != currentLocaleInfo) {
-            req.lang_code = systemInfo.getLangCode();
-            localeInfo = systemInfo;
-        } else {
-            req.lang_code = englishInfo.getLangCode();
-            localeInfo = englishInfo;
-        }
-        req.keys.add("ContinueOnThisLanguage");
-        String finalSystemLang = systemLang;
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            if (response != null) {
-                TLRPC.Vector vector = (TLRPC.Vector) response;
-                if (vector.objects.isEmpty()) {
-                    return;
-                }
-                final TLRPC.LangPackString string = (TLRPC.LangPackString) vector.objects.get(0);
-                if (string instanceof TLRPC.TL_langPackString) {
-                    AndroidUtilities.runOnUIThread(() -> {
-                        if (!destroyed) {
-                            switchLanguageTextView.setText(string.value);
-                            SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-                            preferences.edit().putString("language_showed2", finalSystemLang.toLowerCase()).apply();
-                        }
-                    });
-                }
-            }
-        }, ConnectionsManager.RequestFlagWithoutLogin);
     }
 
     @Override
-    public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.suggestedLangpack || id == NotificationCenter.configLoaded) {
-            checkContinueText();
+    public void onSuggestedLanguageLoaded(String buttonText, LocaleController.LocaleInfo localeInfo) {
+        if (!destroyed) {
+            switchLanguageTextView.setText(buttonText);
+            this.localeInfo = localeInfo;
         }
+    }
+
+    @Override
+    public void onLanguageApplied() {
+        if (loaderDialog != null) {
+            try {
+                loaderDialog.dismiss();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            loaderDialog = null;
+        }
+        AndroidUtilities.runOnUIThread(() -> {
+            presentFragment(new LoginActivity().setIntroView(frameContainerView, startMessagingButton), true);
+            destroyed = true;
+        }, 100);
     }
 
     public IntroActivity setOnLogout() {
@@ -771,7 +717,7 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
             loadTexture(R.drawable.intro_tg_plane, 21);
             loadTexture(v -> {
                 Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                paint.setColor(0xFF2CA5E0); // It's logo color, it should not be colored by the theme
+                paint.setColor(0xFF2CA5E0);
                 int size = AndroidUtilities.dp(ICON_HEIGHT_DP);
                 Bitmap bm = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
                 Canvas c = new Canvas(bm);
