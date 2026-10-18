@@ -12,7 +12,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
@@ -31,8 +30,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.core.presenter.DataAutoDownloadPresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.BottomSheet;
@@ -51,9 +50,10 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SlideChooseView;
 
 import java.util.ArrayList;
-import java.util.Collections;
 
-public class DataAutoDownloadActivity extends BaseFragment {
+public class DataAutoDownloadActivity extends BaseFragment implements DataAutoDownloadPresenter.DataAutoDownloadView {
+
+    private DataAutoDownloadPresenter presenter;
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -89,44 +89,46 @@ public class DataAutoDownloadActivity extends BaseFragment {
 
     private boolean wereAnyChanges;
 
-    private String key;
-    private String key2;
-
     public DataAutoDownloadActivity(int type) {
         super();
         currentType = type;
-
-        lowPreset = DownloadController.getInstance(currentAccount).lowPreset;
-        mediumPreset = DownloadController.getInstance(currentAccount).mediumPreset;
-        highPreset = DownloadController.getInstance(currentAccount).highPreset;
-
-        if (currentType == 0) {
-            currentPresetNum = DownloadController.getInstance(currentAccount).currentMobilePreset;
-            typePreset = DownloadController.getInstance(currentAccount).mobilePreset;
-            defaultPreset = mediumPreset;
-            key = "mobilePreset";
-            key2 = "currentMobilePreset";
-        } else if (currentType == 1) {
-            currentPresetNum = DownloadController.getInstance(currentAccount).currentWifiPreset;
-            typePreset = DownloadController.getInstance(currentAccount).wifiPreset;
-            defaultPreset = highPreset;
-            key = "wifiPreset";
-            key2 = "currentWifiPreset";
-        } else {
-            currentPresetNum = DownloadController.getInstance(currentAccount).currentRoamingPreset;
-            typePreset = DownloadController.getInstance(currentAccount).roamingPreset;
-            defaultPreset = lowPreset;
-            key = "roamingPreset";
-            key2 = "currentRoamingPreset";
-        }
     }
 
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter = new DataAutoDownloadPresenter(currentAccount);
+        presenter.attachView(this);
+
+        lowPreset = presenter.getLowPreset();
+        mediumPreset = presenter.getMediumPreset();
+        highPreset = presenter.getHighPreset();
+
+        if (currentType == 0) {
+            currentPresetNum = presenter.getCurrentPresetNum(currentType);
+            typePreset = presenter.getTypePreset(currentType);
+            defaultPreset = mediumPreset;
+        } else if (currentType == 1) {
+            currentPresetNum = presenter.getCurrentPresetNum(currentType);
+            typePreset = presenter.getTypePreset(currentType);
+            defaultPreset = highPreset;
+        } else {
+            currentPresetNum = presenter.getCurrentPresetNum(currentType);
+            typePreset = presenter.getTypePreset(currentType);
+            defaultPreset = lowPreset;
+        }
+
         fillPresets();
         updateRows();
         return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -193,20 +195,10 @@ public class DataAutoDownloadActivity extends BaseFragment {
                     listAdapter.notifyItemRangeRemoved(autoDownloadSectionRow + 1, 8);
                 }
                 listAdapter.notifyItemChanged(autoDownloadSectionRow);
-                SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                editor.putString(key, typePreset.toString());
-                editor.putInt(key2, currentPresetNum = 3);
-                if (currentType == 0) {
-                    DownloadController.getInstance(currentAccount).currentMobilePreset = currentPresetNum;
-                } else if (currentType == 1) {
-                    DownloadController.getInstance(currentAccount).currentWifiPreset = currentPresetNum;
-                } else {
-                    DownloadController.getInstance(currentAccount).currentRoamingPreset = currentPresetNum;
-                }
-                editor.commit();
+                currentPresetNum = 3;
+                presenter.savePreset(currentType, typePreset, currentPresetNum);
 
                 cell.setChecked(!checked);
-                DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
                 wereAnyChanges = true;
             } else if (position == photosRow || position == videosRow || position == filesRow) {
                 if (!view.isEnabled()) {
@@ -222,22 +214,7 @@ public class DataAutoDownloadActivity extends BaseFragment {
                 }
                 int index = DownloadController.typeToIndex(type);
 
-                DownloadController.Preset currentPreset;
-                String key;
-                String key2;
-                if (currentType == 0) {
-                    currentPreset = DownloadController.getInstance(currentAccount).getCurrentMobilePreset();
-                    key = "mobilePreset";
-                    key2 = "currentMobilePreset";
-                } else if (currentType == 1) {
-                    currentPreset = DownloadController.getInstance(currentAccount).getCurrentWiFiPreset();
-                    key = "wifiPreset";
-                    key2 = "currentWifiPreset";
-                } else {
-                    currentPreset = DownloadController.getInstance(currentAccount).getCurrentRoamingPreset();
-                    key = "roamingPreset";
-                    key2 = "currentRoamingPreset";
-                }
+                DownloadController.Preset currentPreset = presenter.getCurrentPreset(currentType);
 
                 NotificationsCheckCell cell = (NotificationsCheckCell) view;
                 boolean checked = cell.isChecked();
@@ -269,17 +246,8 @@ public class DataAutoDownloadActivity extends BaseFragment {
                         }
                     }
 
-                    SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                    editor.putString(key, typePreset.toString());
-                    editor.putInt(key2, currentPresetNum = 3);
-                    if (currentType == 0) {
-                        DownloadController.getInstance(currentAccount).currentMobilePreset = currentPresetNum;
-                    } else if (currentType == 1) {
-                        DownloadController.getInstance(currentAccount).currentWifiPreset = currentPresetNum;
-                    } else {
-                        DownloadController.getInstance(currentAccount).currentRoamingPreset = currentPresetNum;
-                    }
-                    editor.commit();
+                    currentPresetNum = 3;
+                    presenter.savePreset(currentType, typePreset, currentPresetNum);
 
                     cell.setChecked(!checked);
                     RecyclerView.ViewHolder holder = listView.findContainingViewHolder(view);
@@ -498,17 +466,8 @@ public class DataAutoDownloadActivity extends BaseFragment {
                                 typePreset.preloadMusic = checkCell[0].isChecked();
                             }
                         }
-                        SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                        editor.putString(key, typePreset.toString());
-                        editor.putInt(key2, currentPresetNum = 3);
-                        if (currentType == 0) {
-                            DownloadController.getInstance(currentAccount).currentMobilePreset = currentPresetNum;
-                        } else if (currentType == 1) {
-                            DownloadController.getInstance(currentAccount).currentWifiPreset = currentPresetNum;
-                        } else {
-                            DownloadController.getInstance(currentAccount).currentRoamingPreset = currentPresetNum;
-                        }
-                        editor.commit();
+                        currentPresetNum = 3;
+                        presenter.savePreset(currentType, typePreset, currentPresetNum);
                         builder.getDismissRunnable().run();
 
                         RecyclerView.ViewHolder holder = listView.findContainingViewHolder(view);
@@ -517,7 +476,6 @@ public class DataAutoDownloadActivity extends BaseFragment {
                             listAdapter.onBindViewHolder(holder, position);
                             animateChecked = false;
                         }
-                        DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
                         wereAnyChanges = true;
                         fillPresets();
                     });
@@ -540,7 +498,9 @@ public class DataAutoDownloadActivity extends BaseFragment {
     public void onPause() {
         super.onPause();
         if (wereAnyChanges) {
-            DownloadController.getInstance(currentAccount).savePresetToServer(currentType);
+            if (presenter != null) {
+                presenter.savePresetToServer(currentType);
+            }
             wereAnyChanges = false;
         }
     }
@@ -553,44 +513,9 @@ public class DataAutoDownloadActivity extends BaseFragment {
         if (!typePreset.equals(lowPreset) && !typePreset.equals(mediumPreset) && !typePreset.equals(highPreset)) {
             presets.add(typePreset);
         }
-        Collections.sort(presets, (o1, o2) -> {
-            int index1 = DownloadController.typeToIndex(DownloadController.AUTODOWNLOAD_TYPE_VIDEO);
-            int index2 = DownloadController.typeToIndex(DownloadController.AUTODOWNLOAD_TYPE_DOCUMENT);
-            boolean video1 = false;
-            boolean doc1 = false;
-            for (int a = 0; a < o1.mask.length; a++) {
-                if ((o1.mask[a] & DownloadController.AUTODOWNLOAD_TYPE_VIDEO) != 0) {
-                    video1 = true;
-                }
-                if ((o1.mask[a] & DownloadController.AUTODOWNLOAD_TYPE_DOCUMENT) != 0) {
-                    doc1 = true;
-                }
-                if (video1 && doc1) {
-                    break;
-                }
-            }
-            boolean video2 = false;
-            boolean doc2 = false;
-            for (int a = 0; a < o2.mask.length; a++) {
-                if ((o2.mask[a] & DownloadController.AUTODOWNLOAD_TYPE_VIDEO) != 0) {
-                    video2 = true;
-                }
-                if ((o2.mask[a] & DownloadController.AUTODOWNLOAD_TYPE_DOCUMENT) != 0) {
-                    doc2 = true;
-                }
-                if (video2 && doc2) {
-                    break;
-                }
-            }
-            long size1 = (video1 ? o1.sizes[index1] : 0) + (doc1 ? o1.sizes[index2] : 0);
-            long size2 = (video2 ? o2.sizes[index1] : 0) + (doc2 ? o2.sizes[index2] : 0);
-            if (size1 > size2) {
-                return 1;
-            } else if (size1 < size2) {
-                return -1;
-            }
-            return 0;
-        });
+        if (presenter != null) {
+            presenter.sortPresets(presets);
+        }
         if (currentPresetNum == 0 || currentPresetNum == 3 && typePreset.equals(lowPreset)) {
             selectedPreset = presets.indexOf(lowPreset);
         } else if (currentPresetNum == 1 || currentPresetNum == 3 && typePreset.equals(mediumPreset)) {
@@ -690,13 +615,7 @@ public class DataAutoDownloadActivity extends BaseFragment {
                         text = LocaleController.getString("AutoDownloadFiles", R.string.AutoDownloadFiles);
                         type = DownloadController.AUTODOWNLOAD_TYPE_DOCUMENT;
                     }
-                    if (currentType == 0) {
-                        preset = DownloadController.getInstance(currentAccount).getCurrentMobilePreset();
-                    } else if (currentType == 1) {
-                        preset = DownloadController.getInstance(currentAccount).getCurrentWiFiPreset();
-                    } else {
-                        preset = DownloadController.getInstance(currentAccount).getCurrentRoamingPreset();
-                    }
+                    preset = presenter.getCurrentPreset(currentType);
                     long maxSize = preset.sizes[DownloadController.typeToIndex(type)];
 
                     int count = 0;
@@ -820,17 +739,7 @@ public class DataAutoDownloadActivity extends BaseFragment {
                         } else {
                             currentPresetNum = 3;
                         }
-                        if (currentType == 0) {
-                            DownloadController.getInstance(currentAccount).currentMobilePreset = currentPresetNum;
-                        } else if (currentType == 1) {
-                            DownloadController.getInstance(currentAccount).currentWifiPreset = currentPresetNum;
-                        } else {
-                            DownloadController.getInstance(currentAccount).currentRoamingPreset = currentPresetNum;
-                        }
-                        SharedPreferences.Editor editor = MessagesController.getMainSettings(currentAccount).edit();
-                        editor.putInt(key2, currentPresetNum);
-                        editor.commit();
-                        DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
+                        presenter.setCurrentPresetNum(currentType, currentPresetNum);
                         for (int a = 0; a < 3; a++) {
                             RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(photosRow + a);
                             if (holder != null) {
