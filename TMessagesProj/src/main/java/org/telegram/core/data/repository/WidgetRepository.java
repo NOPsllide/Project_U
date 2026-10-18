@@ -12,4 +12,8 @@ public interface WidgetRepository {
     void saveFeedWidgetConfig(Context context, int account, int appWidgetId, ArrayList<MessagesStorage.TopicKey> dids);
 
     void saveWidgetDialogs(int account, int appWidgetId, ArrayList<MessagesStorage.TopicKey> dids);
+
+    void loadWidgetDialogs(int currentAccount, int currentWidgetId, int widgetType, ArrayList<Long> selectedDialogs);
+
+    void saveWidgetConfig(Context context, int currentAccount, int currentWidgetId, int widgetType, ArrayList<Long> selectedDialogs);
 }

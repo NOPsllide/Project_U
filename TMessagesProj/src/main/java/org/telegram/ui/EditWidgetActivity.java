@@ -77,13 +77,15 @@ import org.telegram.ui.Components.ForegroundColorSpanThemable;
 import org.telegram.ui.Components.InviteMembersBottomSheet;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.MotionBackgroundDrawable;
+import org.telegram.core.presenter.EditWidgetPresenter;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.io.File;
 import java.util.ArrayList;
 
-public class EditWidgetActivity extends BaseFragment {
+public class EditWidgetActivity extends BaseFragment implements EditWidgetPresenter.EditWidgetView {
 
+    private EditWidgetPresenter presenter;
     private ListAdapter listAdapter;
     private RecyclerListView listView;
     private ItemTouchHelper itemTouchHelper;
@@ -735,12 +737,27 @@ public class EditWidgetActivity extends BaseFragment {
         super();
         widgetType = type;
         currentWidgetId = widgetId;
-        ArrayList<TLRPC.User> users = new ArrayList<>();
-        ArrayList<TLRPC.Chat> chats = new ArrayList<>();
-        getMessagesStorage().getWidgetDialogIds(currentWidgetId, widgetType, selectedDialogs, users, chats, true);
-        getMessagesController().putUsers(users, true);
-        getMessagesController().putChats(chats, true);
+        presenter = new EditWidgetPresenter();
+        presenter.attachView(this);
+        presenter.loadWidgetDialogs(currentAccount, currentWidgetId, widgetType, selectedDialogs);
         updateRows();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onWidgetSaved() {
+        if (delegate != null) {
+            delegate.didSelectDialogs(selectedDialogs);
+        } else {
+            finishActivity();
+        }
     }
 
     @Override
@@ -803,28 +820,8 @@ public class EditWidgetActivity extends BaseFragment {
                         return;
                     }
 
-                    ArrayList<MessagesStorage.TopicKey> topicKeys = new ArrayList<>();
-                    for (int i = 0; i < selectedDialogs.size(); i++) {
-                        topicKeys.add(MessagesStorage.TopicKey.of(selectedDialogs.get(i), 0));
-                    }
-                    getMessagesStorage().putWidgetDialogs(currentWidgetId, topicKeys);
-
-                    SharedPreferences preferences = getParentActivity().getSharedPreferences("shortcut_widget", Activity.MODE_PRIVATE);
-                    SharedPreferences.Editor editor = preferences.edit();
-                    editor.putInt("account" + currentWidgetId, currentAccount);
-                    editor.putInt("type" + currentWidgetId, widgetType);
-                    editor.commit();
-
-                    AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(getParentActivity());
-                    if (widgetType == TYPE_CHATS) {
-                        ChatsWidgetProvider.updateWidget(getParentActivity(), appWidgetManager, currentWidgetId);
-                    } else {
-                        ContactsWidgetProvider.updateWidget(getParentActivity(), appWidgetManager, currentWidgetId);
-                    }
-                    if (delegate != null) {
-                        delegate.didSelectDialogs(selectedDialogs);
-                    } else {
-                        finishActivity();
+                    if (presenter != null) {
+                        presenter.saveWidget(getParentActivity(), currentAccount, currentWidgetId, widgetType, selectedDialogs);
                     }
                 }
             }
