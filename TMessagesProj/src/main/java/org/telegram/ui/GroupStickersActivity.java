@@ -24,15 +24,13 @@ import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.telegram.core.presenter.GroupStickersPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaDataController;
-import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
@@ -55,10 +53,10 @@ import org.telegram.ui.Components.VerticalPositionAutoAnimator;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
 
-public class GroupStickersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class GroupStickersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, GroupStickersPresenter.GroupStickersView {
+
+    private GroupStickersPresenter presenter;
 
     private FrameLayout emptyFrameView;
     private StickerEmptyView emptyView;
@@ -68,11 +66,6 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
     private ListAdapter listAdapter;
     private SearchAdapter searchAdapter;
     private LinearLayoutManager layoutManager;
-
-    private int selectedStickerSetIndex = -1;
-
-    private TLRPC.TL_messages_stickerSet selectedStickerSet;
-    private boolean removeStickerSet;
 
     private TLRPC.ChatFull info;
     private long chatId;
@@ -94,23 +87,139 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
-        MediaDataController.getInstance(currentAccount).checkStickers(MediaDataController.TYPE_IMAGE);
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.stickersDidLoad);
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatInfoDidLoad);
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.groupStickersDidLoad);
-        updateRows();
+        presenter = new GroupStickersPresenter(currentAccount);
+        presenter.setChatId(chatId);
+        if (info != null) {
+            presenter.setInfo(info);
+        }
+        presenter.attachView(this);
+        presenter.onFragmentCreate();
         return true;
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.stickersDidLoad);
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatInfoDidLoad);
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.groupStickersDidLoad);
+        if (presenter != null) {
+            presenter.onFragmentDestroy();
+            presenter.detachView();
+        }
+    }
 
-        if (selectedStickerSet != null || removeStickerSet) {
-            saveStickerSet();
+    @Override
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (presenter != null) {
+            presenter.didReceivedNotification(id, account, args);
+        }
+    }
+
+    public void setInfo(TLRPC.ChatFull chatFull) {
+        info = chatFull;
+        if (presenter != null) {
+            presenter.setInfo(chatFull);
+        }
+    }
+
+    @Override
+    public void updateStickersList(ArrayList<TLRPC.TL_messages_stickerSet> stickerSets, int selectedIndex) {
+        rowCount = 0;
+        if (stickerSets != null && !stickerSets.isEmpty()) {
+            headerRow = rowCount++;
+            stickersStartRow = rowCount;
+            stickersEndRow = rowCount + stickerSets.size();
+            rowCount += stickerSets.size();
+        } else {
+            headerRow = -1;
+            stickersStartRow = -1;
+            stickersEndRow = -1;
+        }
+        infoRow = rowCount++;
+
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void updateSelection(int prevIndex, int newIndex) {
+        if (prevIndex != -1) {
+            boolean found = false;
+            if (!searching) {
+                for (int i = 0; i < listView.getChildCount(); i++) {
+                    View ch = listView.getChildAt(i);
+                    if (listView.getChildViewHolder(ch).getAdapterPosition() == stickersStartRow + prevIndex) {
+                        ((StickerSetCell) ch).setChecked(false, true);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found && listAdapter != null) {
+                listAdapter.notifyItemChanged(stickersStartRow + prevIndex);
+            }
+        }
+        if (newIndex != -1) {
+            boolean found = false;
+            if (!searching) {
+                for (int i = 0; i < listView.getChildCount(); i++) {
+                    View ch = listView.getChildAt(i);
+                    if (listView.getChildViewHolder(ch).getAdapterPosition() == stickersStartRow + newIndex) {
+                        ((StickerSetCell) ch).setChecked(true, true);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found && listAdapter != null) {
+                listAdapter.notifyItemChanged(stickersStartRow + newIndex);
+            }
+        }
+    }
+
+    @Override
+    public void onSearchResults(List<TLRPC.TL_messages_stickerSet> searchEntries, List<TLRPC.TL_messages_stickerSet> localSearchEntries, String query) {
+        if (searchAdapter != null) {
+            searchAdapter.setSearchResults(searchEntries, localSearchEntries, query);
+        }
+        if (emptyView != null) {
+            emptyView.title.setVisibility(View.GONE);
+            emptyView.subtitle.setText(LocaleController.formatString(R.string.ChooseStickerNoResultsFound, query));
+            emptyView.showProgress(false, true);
+        }
+    }
+
+    @Override
+    public void onSearchCleared() {
+        if (searchAdapter != null) {
+            searchAdapter.clear();
+        }
+        if (emptyView != null) {
+            emptyView.setVisibility(View.GONE);
+            emptyView.showProgress(false, true);
+        }
+    }
+
+    @Override
+    public void showSearchProgress(boolean progress, boolean clear) {
+        if (emptyView != null) {
+            if (emptyView.getVisibility() != View.VISIBLE) {
+                emptyView.setVisibility(View.VISIBLE);
+                emptyView.showProgress(progress, false);
+            } else {
+                emptyView.showProgress(progress, clear);
+            }
+        }
+    }
+
+    @Override
+    public void onStickersSaved() {
+        finishFragment();
+    }
+
+    @Override
+    public void onStickersSaveError(String error) {
+        if (getParentActivity() != null) {
+            Toast.makeText(getParentActivity(), LocaleController.getString("ErrorOccurred", R.string.ErrorOccurred) + "\n" + error, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -262,47 +371,8 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
                 if (holder != null) {
                     top = holder.itemView.getTop();
                 }
-                int prevIndex = selectedStickerSetIndex;
-                if (isSelected) {
-                    selectedStickerSet = null;
-                    removeStickerSet = true;
-                } else {
-                    selectedStickerSet = stickerSet;
-                    removeStickerSet = false;
-                }
-                updateSelectedStickerSetIndex();
-
-                if (prevIndex != -1) {
-                    boolean found = false;
-                    if (!searching) {
-                        for (int i = 0; i < listView.getChildCount(); i++) {
-                            View ch = listView.getChildAt(i);
-                            if (listView.getChildViewHolder(ch).getAdapterPosition() == stickersStartRow + prevIndex) {
-                                ((StickerSetCell) ch).setChecked(false, true);
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!found) {
-                        listAdapter.notifyItemChanged(prevIndex);
-                    }
-                }
-                if (selectedStickerSetIndex != -1) {
-                    boolean found = false;
-                    if (!searching) {
-                        for (int i = 0; i < listView.getChildCount(); i++) {
-                            View ch = listView.getChildAt(i);
-                            if (listView.getChildViewHolder(ch).getAdapterPosition() == stickersStartRow + selectedStickerSetIndex) {
-                                ((StickerSetCell) ch).setChecked(true, true);
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!found) {
-                        listAdapter.notifyItemChanged(selectedStickerSetIndex);
-                    }
+                if (presenter != null) {
+                    presenter.selectStickerSet(stickerSet, isSelected);
                 }
 
                 if (top != Integer.MAX_VALUE) {
@@ -318,125 +388,6 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
         stickersAlert.show();
     }
 
-    @Override
-    public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.stickersDidLoad) {
-            if ((Integer) args[0] == MediaDataController.TYPE_IMAGE) {
-                updateRows();
-            }
-        } else if (id == NotificationCenter.chatInfoDidLoad) {
-            TLRPC.ChatFull chatFull = (TLRPC.ChatFull) args[0];
-            if (chatFull.id == chatId) {
-                if (info == null && chatFull.stickerset != null) {
-                    selectedStickerSet = MediaDataController.getInstance(currentAccount).getGroupStickerSetById(chatFull.stickerset);
-                }
-                info = chatFull;
-                updateRows();
-            }
-        } else if (id == NotificationCenter.groupStickersDidLoad) {
-            long setId = (Long) args[0];
-            if (info != null && info.stickerset != null && info.stickerset.id == setId) {
-                updateRows();
-            }
-        }
-    }
-
-    public void setInfo(TLRPC.ChatFull chatFull) {
-        info = chatFull;
-        if (info != null && info.stickerset != null) {
-            selectedStickerSet = MediaDataController.getInstance(currentAccount).getGroupStickerSetById(info.stickerset);
-        }
-    }
-
-    private void saveStickerSet() {
-        if (info == null || info.stickerset != null && selectedStickerSet != null && selectedStickerSet.set.id == info.stickerset.id || info.stickerset == null && selectedStickerSet == null) {
-            return;
-        }
-        TLRPC.TL_channels_setStickers req = new TLRPC.TL_channels_setStickers();
-        req.channel = MessagesController.getInstance(currentAccount).getInputChannel(chatId);
-        if (removeStickerSet) {
-            req.stickerset = new TLRPC.TL_inputStickerSetEmpty();
-        } else {
-            MessagesController.getEmojiSettings(currentAccount).edit().remove("group_hide_stickers_" + info.id).apply();
-            req.stickerset = new TLRPC.TL_inputStickerSetID();
-            req.stickerset.id = selectedStickerSet.set.id;
-            req.stickerset.access_hash = selectedStickerSet.set.access_hash;
-        }
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (error == null) {
-                if (selectedStickerSet == null) {
-                    info.stickerset = null;
-                } else {
-                    info.stickerset = selectedStickerSet.set;
-                    MediaDataController.getInstance(currentAccount).putGroupStickerSet(selectedStickerSet);
-                }
-                updateSelectedStickerSetIndex();
-
-                if (info.stickerset == null) {
-                    info.flags |= 256;
-                } else {
-                    info.flags = info.flags &~ 256;
-                }
-                MessagesStorage.getInstance(currentAccount).updateChatInfo(info, false);
-                NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.chatInfoDidLoad, info, 0, true, false);
-                finishFragment();
-            } else {
-                if (getParentActivity() != null) {
-                    Toast.makeText(getParentActivity(), LocaleController.getString("ErrorOccurred", R.string.ErrorOccurred) + "\n" + error.text, Toast.LENGTH_SHORT).show();
-                }
-            }
-        }));
-    }
-
-    private void updateSelectedStickerSetIndex() {
-        ArrayList<TLRPC.TL_messages_stickerSet> stickerSets = MediaDataController.getInstance(currentAccount).getStickerSets(MediaDataController.TYPE_IMAGE);
-        selectedStickerSetIndex = -1;
-
-        long selectedSet;
-
-        if (removeStickerSet) {
-            selectedSet = 0;
-        } else if (selectedStickerSet != null) {
-            selectedSet = selectedStickerSet.set.id;
-        } else if (info != null && info.stickerset != null) {
-            selectedSet = info.stickerset.id;
-        } else {
-            selectedSet = 0;
-        }
-
-        if (selectedSet != 0) {
-            for (int i = 0; i < stickerSets.size(); i++) {
-                TLRPC.TL_messages_stickerSet set = stickerSets.get(i);
-                if (set.set.id == selectedSet) {
-                    selectedStickerSetIndex = i;
-                    break;
-                }
-            }
-        }
-    }
-
-    @SuppressLint("NotifyDataSetChanged")
-    private void updateRows() {
-        rowCount = 0;
-        ArrayList<TLRPC.TL_messages_stickerSet> stickerSets = MediaDataController.getInstance(currentAccount).getStickerSets(MediaDataController.TYPE_IMAGE);
-        if (!stickerSets.isEmpty()) {
-            headerRow = rowCount++;
-            stickersStartRow = rowCount;
-            stickersEndRow = rowCount + stickerSets.size();
-            rowCount += stickerSets.size();
-        } else {
-            headerRow = -1;
-            stickersStartRow = -1;
-            stickersEndRow = -1;
-        }
-        infoRow = rowCount++;
-        updateSelectedStickerSetIndex();
-
-        if (listAdapter != null) {
-            listAdapter.notifyDataSetChanged();
-        }
-    }
-
     private class SearchAdapter extends RecyclerListView.SelectionAdapter {
         private final static int TYPE_STICKER_SET = 0,
             TYPE_MY_STICKERS_HEADER = 1;
@@ -444,10 +395,7 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
         private Context mContext;
         private List<TLRPC.TL_messages_stickerSet> searchEntries = new ArrayList<>();
         private List<TLRPC.TL_messages_stickerSet> localSearchEntries = new ArrayList<>();
-
-        private Runnable lastCallback;
         private String lastQuery;
-        private int reqId;
 
         public SearchAdapter(Context context) {
             mContext = context;
@@ -465,76 +413,28 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
             return -1;
         }
 
+        public void onSearchStickers(String query) {
+            if (presenter != null) {
+                presenter.searchStickers(query);
+            }
+        }
+
         @SuppressLint("NotifyDataSetChanged")
-        private void onSearchStickers(String query) {
-            if (reqId != 0) {
-                getConnectionsManager().cancelRequest(reqId, true);
-                reqId = 0;
-            }
+        public void setSearchResults(List<TLRPC.TL_messages_stickerSet> remote, List<TLRPC.TL_messages_stickerSet> local, String query) {
+            searchEntries = remote;
+            localSearchEntries = local;
+            lastQuery = query;
+            notifyDataSetChanged();
+        }
 
-            if (lastCallback != null) {
-                AndroidUtilities.cancelRunOnUIThread(lastCallback);
-                lastCallback = null;
-            }
-            lastQuery = null;
-
+        public void clear() {
             int count = getItemCount();
             if (count > 0) {
                 searchEntries.clear();
                 localSearchEntries.clear();
                 notifyItemRangeRemoved(0, count);
             }
-
-            if (TextUtils.isEmpty(query)) {
-                emptyView.setVisibility(View.GONE);
-                emptyView.showProgress(false, true);
-                return;
-            }
-
-            if (emptyView.getVisibility() != View.VISIBLE) {
-                emptyView.setVisibility(View.VISIBLE);
-                emptyView.showProgress(true, false);
-            } else {
-                emptyView.showProgress(true, true);
-            }
-            AndroidUtilities.runOnUIThread(lastCallback = ()-> {
-                lastQuery = query;
-
-                TLRPC.TL_messages_searchStickerSets searchStickerSets = new TLRPC.TL_messages_searchStickerSets();
-                searchStickerSets.q = query;
-                reqId = getConnectionsManager().sendRequest(searchStickerSets, (response, error) -> {
-                    if (!Objects.equals(lastQuery, searchStickerSets.q)) {
-                        return;
-                    }
-
-                    if (response instanceof TLRPC.TL_messages_foundStickerSets) {
-                        List<TLRPC.TL_messages_stickerSet> newSearchEntries = new ArrayList<>();
-                        TLRPC.TL_messages_foundStickerSets foundStickerSets = (TLRPC.TL_messages_foundStickerSets) response;
-                        for (TLRPC.StickerSetCovered stickerSetCovered : foundStickerSets.sets) {
-                            TLRPC.TL_messages_stickerSet set = new TLRPC.TL_messages_stickerSet();
-                            set.set = stickerSetCovered.set;
-                            set.documents = stickerSetCovered.covers;
-                            newSearchEntries.add(set);
-                        }
-                        String lowQuery = query.toLowerCase(Locale.ROOT).trim();
-                        List<TLRPC.TL_messages_stickerSet> newLocalEntries = new ArrayList<>();
-                        for (TLRPC.TL_messages_stickerSet localSet : MediaDataController.getInstance(currentAccount).getStickerSets(MediaDataController.TYPE_IMAGE)) {
-                            if (localSet.set.short_name.toLowerCase(Locale.ROOT).contains(lowQuery) || localSet.set.title.toLowerCase(Locale.ROOT).contains(lowQuery)) {
-                                newLocalEntries.add(localSet);
-                            }
-                        }
-                        AndroidUtilities.runOnUIThread(()->{
-                            searchEntries = newSearchEntries;
-                            localSearchEntries = newLocalEntries;
-                            notifyDataSetChanged();
-
-                            emptyView.title.setVisibility(View.GONE);
-                            emptyView.subtitle.setText(LocaleController.formatString(R.string.ChooseStickerNoResultsFound, query));
-                            emptyView.showProgress(false, true);
-                        });
-                    }
-                }, ConnectionsManager.RequestFlagInvokeAfter | ConnectionsManager.RequestFlagFailOnServerErrors);
-            }, 300);
+            lastQuery = null;
         }
 
         @NonNull
@@ -567,15 +467,8 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
                     StickerSetCell cell = (StickerSetCell) holder.itemView;
                     TLRPC.TL_messages_stickerSet set = arrayList.get(row);
                     cell.setStickersSet(set, row != arrayList.size() - 1, !local);
-                    cell.setSearchQuery(set, lastQuery != null ? lastQuery.toLowerCase(Locale.ROOT) : "", getResourceProvider());
-                    long id;
-                    if (selectedStickerSet != null) {
-                        id = selectedStickerSet.set.id;
-                    } else if (info != null && info.stickerset != null) {
-                        id = info.stickerset.id;
-                    } else {
-                        id = 0;
-                    }
+                    cell.setSearchQuery(set, lastQuery != null ? lastQuery.toLowerCase(java.util.Locale.ROOT) : "", getResourceProvider());
+                    long id = presenter != null ? presenter.getSelectedStickerSetId() : 0;
                     cell.setChecked(set.set.id == id, false);
                     break;
                 }
@@ -624,14 +517,7 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
                     StickerSetCell cell = (StickerSetCell) holder.itemView;
                     TLRPC.TL_messages_stickerSet set = arrayList.get(row);
                     cell.setStickersSet(arrayList.get(row), row != arrayList.size() - 1);
-                    long id;
-                    if (selectedStickerSet != null) {
-                        id = selectedStickerSet.set.id;
-                    } else if (info != null && info.stickerset != null) {
-                        id = info.stickerset.id;
-                    } else {
-                        id = 0;
-                    }
+                    long id = presenter != null ? presenter.getSelectedStickerSetId() : 0;
                     cell.setChecked(set.set.id == id, false);
                     break;
                 }
@@ -646,7 +532,9 @@ public class GroupStickersActivity extends BaseFragment implements NotificationC
                                 URLSpanNoUnderline spanNoUnderline = new URLSpanNoUnderline("@stickers") {
                                     @Override
                                     public void onClick(View widget) {
-                                        MessagesController.getInstance(currentAccount).openByUserName("stickers", GroupStickersActivity.this, 1);
+                                        if (presenter != null) {
+                                            presenter.openStickersBot(GroupStickersActivity.this);
+                                        }
                                     }
                                 };
                                 stringBuilder.setSpan(spanNoUnderline, index, index + botName.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);

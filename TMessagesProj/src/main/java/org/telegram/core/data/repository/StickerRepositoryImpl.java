@@ -2,9 +2,15 @@ package org.telegram.core.data.repository;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.MessagesStorage;
+import org.telegram.messenger.NotificationCenter;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.BaseFragment;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 public class StickerRepositoryImpl implements StickerRepository {
 
@@ -61,5 +67,114 @@ public class StickerRepositoryImpl implements StickerRepository {
     @Override
     public boolean isStickerPackInstalled(long setId) {
         return MediaDataController.getInstance(accountNum).isStickerPackInstalled(setId);
+    }
+
+    @Override
+    public void checkImageStickers() {
+        MediaDataController.getInstance(accountNum).checkStickers(MediaDataController.TYPE_IMAGE);
+    }
+
+    @Override
+    public ArrayList<TLRPC.TL_messages_stickerSet> getImageStickerSets() {
+        return MediaDataController.getInstance(accountNum).getStickerSets(MediaDataController.TYPE_IMAGE);
+    }
+
+    @Override
+    public TLRPC.TL_messages_stickerSet getGroupStickerSetById(TLRPC.StickerSet stickerset) {
+        return MediaDataController.getInstance(accountNum).getGroupStickerSetById(stickerset);
+    }
+
+    @Override
+    public void putGroupStickerSet(TLRPC.TL_messages_stickerSet stickerSet) {
+        MediaDataController.getInstance(accountNum).putGroupStickerSet(stickerSet);
+    }
+
+    @Override
+    public int searchStickerSets(String query, SearchStickersCallback callback) {
+        TLRPC.TL_messages_searchStickerSets searchStickerSets = new TLRPC.TL_messages_searchStickerSets();
+        searchStickerSets.q = query;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(searchStickerSets, (response, error) -> {
+            if (error == null && response instanceof TLRPC.TL_messages_foundStickerSets) {
+                List<TLRPC.TL_messages_stickerSet> newSearchEntries = new ArrayList<>();
+                TLRPC.TL_messages_foundStickerSets foundStickerSets = (TLRPC.TL_messages_foundStickerSets) response;
+                for (TLRPC.StickerSetCovered stickerSetCovered : foundStickerSets.sets) {
+                    TLRPC.TL_messages_stickerSet set = new TLRPC.TL_messages_stickerSet();
+                    set.set = stickerSetCovered.set;
+                    set.documents = stickerSetCovered.covers;
+                    newSearchEntries.add(set);
+                }
+                String lowQuery = query.toLowerCase(Locale.ROOT).trim();
+                List<TLRPC.TL_messages_stickerSet> newLocalEntries = new ArrayList<>();
+                for (TLRPC.TL_messages_stickerSet localSet : MediaDataController.getInstance(accountNum).getStickerSets(MediaDataController.TYPE_IMAGE)) {
+                    if (localSet.set.short_name.toLowerCase(Locale.ROOT).contains(lowQuery) || localSet.set.title.toLowerCase(Locale.ROOT).contains(lowQuery)) {
+                        newLocalEntries.add(localSet);
+                    }
+                }
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (callback != null) {
+                        callback.onSuccess(newSearchEntries, newLocalEntries);
+                    }
+                });
+            } else {
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (callback != null) {
+                        callback.onError();
+                    }
+                });
+            }
+        }, ConnectionsManager.RequestFlagInvokeAfter | ConnectionsManager.RequestFlagFailOnServerErrors);
+    }
+
+    @Override
+    public void cancelRequest(int reqId) {
+        if (reqId != 0) {
+            ConnectionsManager.getInstance(accountNum).cancelRequest(reqId, true);
+        }
+    }
+
+    @Override
+    public void setGroupStickers(long chatId, TLRPC.ChatFull info, TLRPC.TL_messages_stickerSet selectedStickerSet, boolean removeStickerSet, SetGroupStickersCallback callback) {
+        if (info == null || info.stickerset != null && selectedStickerSet != null && selectedStickerSet.set.id == info.stickerset.id || info.stickerset == null && selectedStickerSet == null) {
+            return;
+        }
+        TLRPC.TL_channels_setStickers req = new TLRPC.TL_channels_setStickers();
+        req.channel = MessagesController.getInstance(accountNum).getInputChannel(chatId);
+        if (removeStickerSet) {
+            req.stickerset = new TLRPC.TL_inputStickerSetEmpty();
+        } else {
+            MessagesController.getEmojiSettings(accountNum).edit().remove("group_hide_stickers_" + info.id).apply();
+            req.stickerset = new TLRPC.TL_inputStickerSetID();
+            req.stickerset.id = selectedStickerSet.set.id;
+            req.stickerset.access_hash = selectedStickerSet.set.access_hash;
+        }
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null) {
+                if (selectedStickerSet == null) {
+                    info.stickerset = null;
+                } else {
+                    info.stickerset = selectedStickerSet.set;
+                    MediaDataController.getInstance(accountNum).putGroupStickerSet(selectedStickerSet);
+                }
+                if (info.stickerset == null) {
+                    info.flags |= 256;
+                } else {
+                    info.flags = info.flags &~ 256;
+                }
+                MessagesStorage.getInstance(accountNum).updateChatInfo(info, false);
+                NotificationCenter.getInstance(accountNum).postNotificationName(NotificationCenter.chatInfoDidLoad, info, 0, true, false);
+                if (callback != null) {
+                    callback.onSuccess();
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError(error.text);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public void openStickersBot(BaseFragment fragment) {
+        MessagesController.getInstance(accountNum).openByUserName("stickers", fragment, 1);
     }
 }
