@@ -20,12 +20,11 @@ import android.widget.LinearLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
-import org.telegram.tgnet.ConnectionsManager;
-import org.telegram.tgnet.TLRPC;
 import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.messenger.UserConfig;
+import org.telegram.core.data.repository.UserRepository;
+import org.telegram.core.data.repository.UserRepositoryImpl;
+import org.telegram.core.presenter.ChangeNamePresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -36,7 +35,7 @@ import org.telegram.ui.Components.LayoutHelper;
 
 import java.util.ArrayList;
 
-public class ChangeNameActivity extends BaseFragment {
+public class ChangeNameActivity extends BaseFragment implements ChangeNamePresenter.View {
 
     private EditTextBoldCursor firstNameField;
     private EditTextBoldCursor lastNameField;
@@ -44,6 +43,7 @@ public class ChangeNameActivity extends BaseFragment {
     private View doneButton;
 
     private Theme.ResourcesProvider resourcesProvider;
+    private ChangeNamePresenter presenter;
 
     private final static int done_button = 1;
 
@@ -53,6 +53,10 @@ public class ChangeNameActivity extends BaseFragment {
 
     @Override
     public View createView(Context context) {
+        UserRepository repository = new UserRepositoryImpl(currentAccount);
+        presenter = new ChangeNamePresenter(repository);
+        presenter.attachView(this);
+
         actionBar.setItemsBackgroundColor(Theme.getColor(Theme.key_avatar_actionBarSelectorBlue, resourcesProvider), false);
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon, resourcesProvider), false);
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
@@ -65,8 +69,10 @@ public class ChangeNameActivity extends BaseFragment {
                     finishFragment();
                 } else if (id == done_button) {
                     if (firstNameField.getText().length() != 0) {
-                        saveName();
-                        finishFragment();
+                        presenter.saveName(
+                                firstNameField.getText().toString(),
+                                lastNameField.getText().toString()
+                        );
                     }
                 }
             }
@@ -74,11 +80,6 @@ public class ChangeNameActivity extends BaseFragment {
 
         ActionBarMenu menu = actionBar.createMenu();
         doneButton = menu.addItemWithWidth(done_button, R.drawable.ic_ab_done, AndroidUtilities.dp(56), LocaleController.getString("Done", R.string.Done));
-
-        TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(UserConfig.getInstance(currentAccount).getClientUserId());
-        if (user == null) {
-            user = UserConfig.getInstance(currentAccount).getCurrentUser();
-        }
 
         LinearLayout linearLayout = new LinearLayout(context);
         fragmentView = linearLayout;
@@ -147,11 +148,7 @@ public class ChangeNameActivity extends BaseFragment {
             return false;
         });
 
-        if (user != null) {
-            firstNameField.setText(user.first_name);
-            firstNameField.setSelection(firstNameField.length());
-            lastNameField.setText(user.last_name);
-        }
+        presenter.loadCurrentName();
 
         return fragmentView;
     }
@@ -167,31 +164,12 @@ public class ChangeNameActivity extends BaseFragment {
         }
     }
 
-    private void saveName() {
-        TLRPC.User currentUser = UserConfig.getInstance(currentAccount).getCurrentUser();
-        if (currentUser == null || lastNameField.getText() == null || firstNameField.getText() == null) {
-            return;
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
         }
-        String newFirst = firstNameField.getText().toString();
-        String newLast = lastNameField.getText().toString();
-        if (currentUser.first_name != null && currentUser.first_name.equals(newFirst) && currentUser.last_name != null && currentUser.last_name.equals(newLast)) {
-            return;
-        }
-        TLRPC.TL_account_updateProfile req = new TLRPC.TL_account_updateProfile();
-        req.flags = 3;
-        currentUser.first_name = req.first_name = newFirst;
-        currentUser.last_name = req.last_name = newLast;
-        TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(UserConfig.getInstance(currentAccount).getClientUserId());
-        if (user != null) {
-            user.first_name = req.first_name;
-            user.last_name = req.last_name;
-        }
-        UserConfig.getInstance(currentAccount).saveConfig(true);
-        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.mainUserInfoChanged);
-        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_NAME);
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-
-        });
     }
 
     @Override
@@ -209,6 +187,18 @@ public class ChangeNameActivity extends BaseFragment {
                 }
             }, 100);
         }
+    }
+
+    @Override
+    public void showCurrentName(String firstName, String lastName) {
+        firstNameField.setText(firstName);
+        firstNameField.setSelection(firstNameField.length());
+        lastNameField.setText(lastName);
+    }
+
+    @Override
+    public void closeScreen() {
+        finishFragment();
     }
 
     @Override

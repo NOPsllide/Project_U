@@ -17,5 +17,9 @@ public interface UserRepository {
 
     int updateBio(String newBio, Callback<TLRPC.User> callback);
 
+    TLRPC.User getCurrentUser();
+
+    void updateName(String firstName, String lastName);
+
     void cancelRequest(int requestId);
 }

@@ -62,6 +62,42 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
+    public TLRPC.User getCurrentUser() {
+        TLRPC.User user = MessagesController.getInstance(accountNum)
+                .getUser(UserConfig.getInstance(accountNum).getClientUserId());
+        if (user == null) {
+            user = UserConfig.getInstance(accountNum).getCurrentUser();
+        }
+        return user;
+    }
+
+    @Override
+    public void updateName(String firstName, String lastName) {
+        TLRPC.User currentUser = UserConfig.getInstance(accountNum).getCurrentUser();
+        if (currentUser == null) return;
+
+        TLRPC.TL_account_updateProfile req = new TLRPC.TL_account_updateProfile();
+        req.flags = 3;
+        currentUser.first_name = req.first_name = firstName;
+        currentUser.last_name = req.last_name = lastName;
+
+        TLRPC.User cachedUser = MessagesController.getInstance(accountNum)
+                .getUser(UserConfig.getInstance(accountNum).getClientUserId());
+        if (cachedUser != null) {
+            cachedUser.first_name = firstName;
+            cachedUser.last_name = lastName;
+        }
+
+        UserConfig.getInstance(accountNum).saveConfig(true);
+        NotificationCenter.getInstance(accountNum)
+                .postNotificationName(NotificationCenter.mainUserInfoChanged);
+        NotificationCenter.getInstance(accountNum)
+                .postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_NAME);
+
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> {});
+    }
+
+    @Override
     public void cancelRequest(int requestId) {
         ConnectionsManager.getInstance(accountNum).cancelRequest(requestId, true);
     }
