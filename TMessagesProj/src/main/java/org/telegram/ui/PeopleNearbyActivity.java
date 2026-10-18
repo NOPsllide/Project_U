@@ -57,6 +57,7 @@ import org.telegram.ui.Cells.ManageChatUserCell;
 import org.telegram.ui.Cells.ShadowSectionCell;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.core.presenter.PeopleNearbyPresenter;
 import org.telegram.ui.Components.RadialProgressView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.ShareLocationDrawable;
@@ -64,8 +65,9 @@ import org.telegram.ui.Components.UndoView;
 
 import java.util.ArrayList;
 
-public class PeopleNearbyActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, LocationController.LocationFetchCallback {
+public class PeopleNearbyActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, LocationController.LocationFetchCallback, PeopleNearbyPresenter.PeopleNearbyView {
 
+    private PeopleNearbyPresenter presenter;
     private ListAdapter listViewAdapter;
     private RecyclerListView listView;
     private ActionIntroActivity groupCreateActivity;
@@ -134,8 +136,11 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
 
     public PeopleNearbyActivity() {
         super();
-        users = new ArrayList<>(getLocationController().getCachedNearbyUsers());
-        chats = new ArrayList<>(getLocationController().getCachedNearbyChats());
+        presenter = new PeopleNearbyPresenter(currentAccount);
+        presenter.attachView(this);
+        users = new ArrayList<>();
+        chats = new ArrayList<>();
+        presenter.loadCachedData();
         checkForExpiredLocations(false);
         updateRows(null);
     }
@@ -269,6 +274,107 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
     }
 
     @Override
+    public void onCachedDataLoaded(ArrayList<TLRPC.TL_peerLocated> usersList, ArrayList<TLRPC.TL_peerLocated> chatsList) {
+        users = usersList;
+        chats = chatsList;
+    }
+
+    @Override
+    public void onCanCreateGroupResult(boolean canCreate) {
+        canCreateGroup = canCreate;
+        checkingCanCreate = false;
+        if (loadingDialog != null && currentGroupCreateAddress != null) {
+            try {
+                loadingDialog.dismiss();
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+            loadingDialog = null;
+            openGroupCreate();
+        }
+    }
+
+    @Override
+    public void onLocatedSuccess(TLRPC.TL_updates updates, int share) {
+        if (showProgressRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(showProgressRunnable);
+            showProgressRunnable = null;
+        }
+        showLoadingProgress(false);
+        boolean saveConfig = false;
+        UserConfig userConfig = getUserConfig();
+        if (share != 2) {
+            DiffCallback diffCallback = new DiffCallback();
+            diffCallback.saveCurrentState();
+
+            users.clear();
+            chats.clear();
+            if (userConfig.sharingMyLocationUntil != 0) {
+                userConfig.lastMyLocationShareTime = (int) (System.currentTimeMillis() / 1000);
+                saveConfig = true;
+            }
+            boolean hasSelf = false;
+            for (int a = 0, N = updates.updates.size(); a < N; a++) {
+                TLRPC.Update baseUpdate = updates.updates.get(a);
+                if (baseUpdate instanceof TLRPC.TL_updatePeerLocated) {
+                    TLRPC.TL_updatePeerLocated update = (TLRPC.TL_updatePeerLocated) baseUpdate;
+                    for (int b = 0, N2 = update.peers.size(); b < N2; b++) {
+                        TLRPC.PeerLocated object = update.peers.get(b);
+                        if (object instanceof TLRPC.TL_peerLocated) {
+                            TLRPC.TL_peerLocated peerLocated = (TLRPC.TL_peerLocated) object;
+                            if (peerLocated.peer instanceof TLRPC.TL_peerUser) {
+                                users.add(peerLocated);
+                            } else {
+                                chats.add(peerLocated);
+                            }
+                        } else if (object instanceof TLRPC.TL_peerSelfLocated) {
+                            hasSelf = true;
+                            TLRPC.TL_peerSelfLocated peerSelfLocated = (TLRPC.TL_peerSelfLocated) object;
+                            if (userConfig.sharingMyLocationUntil != peerSelfLocated.expires) {
+                                userConfig.sharingMyLocationUntil = peerSelfLocated.expires;
+                                saveConfig = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!hasSelf && userConfig.sharingMyLocationUntil != 0) {
+                userConfig.sharingMyLocationUntil = 0;
+                saveConfig = true;
+            }
+
+            checkForExpiredLocations(true);
+            updateRows(diffCallback);
+        }
+        if (saveConfig) {
+            userConfig.saveConfig(false);
+        }
+        if (shortPollRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(shortPollRunnable);
+            AndroidUtilities.runOnUIThread(shortPollRunnable, SHORT_POLL_TIMEOUT);
+        }
+    }
+
+    @Override
+    public void onLocatedError(TLRPC.TL_error error, int share) {
+        if (showProgressRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(showProgressRunnable);
+            showProgressRunnable = null;
+        }
+        showLoadingProgress(false);
+        if (share == 1 && error != null) {
+            UserConfig userConfig = getUserConfig();
+            userConfig.sharingMyLocationUntil = 0;
+            userConfig.saveConfig(false);
+            updateRows(null);
+        }
+        if (shortPollRunnable != null) {
+            AndroidUtilities.cancelRunOnUIThread(shortPollRunnable);
+            AndroidUtilities.runOnUIThread(shortPollRunnable, SHORT_POLL_TIMEOUT);
+        }
+    }
+
+    @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.newLocationAvailable);
@@ -283,6 +389,9 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.newLocationAvailable);
         getNotificationCenter().removeObserver(this, NotificationCenter.newPeopleNearbyAvailable);
         getNotificationCenter().removeObserver(this, NotificationCenter.needDeleteDialog);
@@ -512,23 +621,9 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
             return;
         }
         checkingCanCreate = true;
-        TLRPC.TL_channels_getAdminedPublicChannels req = new TLRPC.TL_channels_getAdminedPublicChannels();
-        req.by_location = true;
-        req.check_limit = true;
-        int reqId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            canCreateGroup = error == null;
-            checkingCanCreate = false;
-            if (loadingDialog != null && currentGroupCreateAddress != null) {
-                try {
-                    loadingDialog.dismiss();
-                } catch (Throwable e) {
-                    FileLog.e(e);
-                }
-                loadingDialog = null;
-                openGroupCreate();
-            }
-        }));
-        getConnectionsManager().bindRequestToGuid(reqId, classGuid);
+        if (presenter != null) {
+            presenter.checkCanCreateGroup(classGuid);
+        }
     }
 
     private void showLoadingProgress(boolean show) {
@@ -577,7 +672,7 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
             }, 1000);
             firstLoaded = true;
         }
-        Location location = getLocationController().getLastKnownLocation();
+        Location location = presenter != null ? presenter.getLastKnownLocation() : getLocationController().getLastKnownLocation();
         if (location == null) {
             return;
         }
@@ -588,98 +683,22 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
                 FileLog.d("located distance = " + distance);
             }
             if (share != 0 || (SystemClock.elapsedRealtime() - lastLoadedLocationTime) >= 3000L && lastLoadedLocation.distanceTo(location) > 20) {
-                if (reqId != 0) {
-                    getConnectionsManager().cancelRequest(reqId, true);
-                    reqId = 0;
+                if (presenter != null) {
+                    presenter.cancelLocatedRequest();
                 }
             } else {
                 return;
             }
         }
-        if (reqId != 0) {
+        if (presenter != null && presenter.hasPendingRequest()) {
             return;
         }
         lastLoadedLocation = location;
         lastLoadedLocationTime = SystemClock.elapsedRealtime();
-        LocationController.fetchLocationAddress(currentGroupCreateLocation, PeopleNearbyActivity.this);
-        TLRPC.TL_contacts_getLocated req = new TLRPC.TL_contacts_getLocated();
-        req.geo_point = new TLRPC.TL_inputGeoPoint();
-        req.geo_point.lat = location.getLatitude();
-        req.geo_point._long = location.getLongitude();
-        if (share != 0) {
-            req.flags |= 1;
-            req.self_expires = share == 1 ? 0x7fffffff : 0;
+        if (presenter != null) {
+            presenter.fetchLocationAddress(currentGroupCreateLocation, PeopleNearbyActivity.this);
+            presenter.sendLocatedRequest(location, share, classGuid);
         }
-        reqId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            reqId = 0;
-            if (showProgressRunnable != null) {
-                AndroidUtilities.cancelRunOnUIThread(showProgressRunnable);
-                showProgressRunnable = null;
-            }
-            showLoadingProgress(false);
-            boolean saveConfig = false;
-            UserConfig userConfig = getUserConfig();
-            if (share == 1 && error != null) {
-                userConfig.sharingMyLocationUntil = 0;
-                saveConfig = true;
-                updateRows(null);
-            }
-            if (response != null && share != 2) {
-                TLRPC.Updates updates = (TLRPC.TL_updates) response;
-                getMessagesController().putUsers(updates.users, false);
-                getMessagesController().putChats(updates.chats, false);
-
-                DiffCallback diffCallback = new DiffCallback();
-                diffCallback.saveCurrentState();
-
-                users.clear();
-                chats.clear();
-                if (userConfig.sharingMyLocationUntil != 0) {
-                    userConfig.lastMyLocationShareTime = (int) (System.currentTimeMillis() / 1000);
-                    saveConfig = true;
-                }
-                boolean hasSelf = false;
-                for (int a = 0, N = updates.updates.size(); a < N; a++) {
-                    TLRPC.Update baseUpdate = updates.updates.get(a);
-                    if (baseUpdate instanceof TLRPC.TL_updatePeerLocated) {
-                        TLRPC.TL_updatePeerLocated update = (TLRPC.TL_updatePeerLocated) baseUpdate;
-                        for (int b = 0, N2 = update.peers.size(); b < N2; b++) {
-                            TLRPC.PeerLocated object = update.peers.get(b);
-                            if (object instanceof TLRPC.TL_peerLocated) {
-                                TLRPC.TL_peerLocated peerLocated = (TLRPC.TL_peerLocated) object;
-                                if (peerLocated.peer instanceof TLRPC.TL_peerUser) {
-                                    users.add(peerLocated);
-                                } else {
-                                    chats.add(peerLocated);
-                                }
-                            } else if (object instanceof TLRPC.TL_peerSelfLocated) {
-                                hasSelf = true;
-                                TLRPC.TL_peerSelfLocated peerSelfLocated = (TLRPC.TL_peerSelfLocated) object;
-                                if (userConfig.sharingMyLocationUntil != peerSelfLocated.expires) {
-                                    userConfig.sharingMyLocationUntil = peerSelfLocated.expires;
-                                    saveConfig = true;
-                                }
-                            }
-                        }
-                    }
-                }
-                if (!hasSelf && userConfig.sharingMyLocationUntil != 0) {
-                    userConfig.sharingMyLocationUntil = 0;
-                    saveConfig = true;
-                }
-
-                checkForExpiredLocations(true);
-                updateRows(diffCallback);
-            }
-            if (saveConfig) {
-                userConfig.saveConfig(false);
-            }
-            if (shortPollRunnable != null) {
-                AndroidUtilities.cancelRunOnUIThread(shortPollRunnable);
-                AndroidUtilities.runOnUIThread(shortPollRunnable, SHORT_POLL_TIMEOUT);
-            }
-        }));
-        getConnectionsManager().bindRequestToGuid(reqId, classGuid);
     }
 
     @Override
@@ -688,7 +707,11 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
         if (listViewAdapter != null) {
             listViewAdapter.notifyDataSetChanged();
         }
-        getLocationController().startLocationLookupForPeopleNearby(false);
+        if (presenter != null) {
+            presenter.startLocationLookup();
+        } else {
+            getLocationController().startLocationLookupForPeopleNearby(false);
+        }
     }
 
     @Override
@@ -697,7 +720,11 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
         if (undoView != null) {
             undoView.hide(true, 0);
         }
-        getLocationController().startLocationLookupForPeopleNearby(true);
+        if (presenter != null) {
+            presenter.stopLocationLookup();
+        } else {
+            getLocationController().startLocationLookupForPeopleNearby(true);
+        }
     }
 
     @Override
@@ -824,7 +851,11 @@ public class PeopleNearbyActivity extends BaseFragment implements NotificationCe
             updateRows(callback);
         }
         if (changed || cache) {
-            getLocationController().setCachedNearbyUsersAndChats(users, chats);
+            if (presenter != null) {
+                presenter.setCachedNearbyUsersAndChats(users, chats);
+            } else {
+                getLocationController().setCachedNearbyUsersAndChats(users, chats);
+            }
         }
         if (minExpired != Integer.MAX_VALUE) {
             AndroidUtilities.runOnUIThread(checkExpiredRunnable = () -> {
