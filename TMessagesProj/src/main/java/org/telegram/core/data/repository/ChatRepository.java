@@ -61,6 +61,23 @@ public interface ChatRepository {
 
     void cancelRequest(int reqId);
 
+    interface DiscussionGroupsCallback {
+        void onSuccess(ArrayList<TLRPC.Chat> chats);
+        void onError(TLRPC.TL_error error);
+    }
+
+    TLRPC.ChatFull getChatFull(long chatId);
+
+    int loadDiscussionGroups(DiscussionGroupsCallback callback);
+
+    int setDiscussionGroup(TLRPC.InputChannel broadcast, TLRPC.InputChannel group, LinkCallback callback);
+
+    void toggleChannelInvitesHistory(long chatId, boolean enabled);
+
+    void toggleChatJoinRequest(long chatId, boolean enabled, Runnable onComplete);
+
+    void toggleChatJoinToSend(long chatId, boolean enabled, Runnable onComplete);
+
     interface InactiveChannelsCallback {
         void onSuccess(TLRPC.TL_messages_inactiveChats chats);
         void onError();

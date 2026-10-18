@@ -250,4 +250,60 @@ public class ChatRepositoryImpl implements ChatRepository {
     public void cancelRequest(int reqId) {
         ConnectionsManager.getInstance(accountNum).cancelRequest(reqId, true);
     }
+
+    @Override
+    public TLRPC.ChatFull getChatFull(long chatId) {
+        return MessagesController.getInstance(accountNum).getChatFull(chatId);
+    }
+
+    @Override
+    public int loadDiscussionGroups(DiscussionGroupsCallback callback) {
+        TLRPC.TL_channels_getGroupsForDiscussion req = new TLRPC.TL_channels_getGroupsForDiscussion();
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null && response instanceof TLRPC.messages_Chats) {
+                TLRPC.messages_Chats res = (TLRPC.messages_Chats) response;
+                MessagesController.getInstance(accountNum).putChats(res.chats, false);
+                if (callback != null) {
+                    callback.onSuccess(res.chats);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int setDiscussionGroup(TLRPC.InputChannel broadcast, TLRPC.InputChannel group, LinkCallback callback) {
+        TLRPC.TL_channels_setDiscussionGroup req = new TLRPC.TL_channels_setDiscussionGroup();
+        req.broadcast = broadcast;
+        req.group = group;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null) {
+                if (callback != null) {
+                    callback.onSuccess(response);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError(error);
+                }
+            }
+        }), ConnectionsManager.RequestFlagInvokeAfter);
+    }
+
+    @Override
+    public void toggleChannelInvitesHistory(long chatId, boolean enabled) {
+        MessagesController.getInstance(accountNum).toggleChannelInvitesHistory(chatId, enabled);
+    }
+
+    @Override
+    public void toggleChatJoinRequest(long chatId, boolean enabled, Runnable onComplete) {
+        MessagesController.getInstance(accountNum).toggleChatJoinRequest(chatId, enabled, onComplete);
+    }
+
+    @Override
+    public void toggleChatJoinToSend(long chatId, boolean enabled, Runnable onComplete) {
+        MessagesController.getInstance(accountNum).toggleChatJoinToSend(chatId, enabled, onComplete);
+    }
 }

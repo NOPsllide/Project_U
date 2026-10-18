@@ -52,12 +52,14 @@ import org.telegram.ui.Components.EmptyTextProgressView;
 import org.telegram.ui.Components.JoinToSendSettingsView;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.LoadingStickerDrawable;
+import org.telegram.core.presenter.ChatLinkPresenter;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 
-public class ChatLinkActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ChatLinkActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ChatLinkPresenter.ChatLinkView {
 
+    private ChatLinkPresenter presenter;
     private ListAdapter listViewAdapter;
     private RecyclerListView listView;
     private ActionBarMenuItem searchItem;
@@ -221,6 +223,8 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter = new ChatLinkPresenter(currentAccount);
+        presenter.attachView(this);
         getNotificationCenter().addObserver(this, NotificationCenter.chatInfoDidLoad);
         getNotificationCenter().addObserver(this, NotificationCenter.updateInterfaces);
         loadChats();
@@ -232,6 +236,35 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
         super.onFragmentDestroy();
         getNotificationCenter().removeObserver(this, NotificationCenter.chatInfoDidLoad);
         getNotificationCenter().removeObserver(this, NotificationCenter.updateInterfaces);
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onDiscussionGroupsLoaded(ArrayList<TLRPC.Chat> chats) {
+        this.chats = chats;
+        loadingChats = false;
+        chatsLoaded = true;
+        updateRows();
+        if (listViewAdapter != null) {
+            listViewAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onDiscussionGroupsFailed() {
+        loadingChats = false;
+        chatsLoaded = true;
+        updateRows();
+    }
+
+    @Override
+    public void onDiscussionGroupSet() {
+    }
+
+    @Override
+    public void onDiscussionGroupSetFailed() {
     }
 
     private boolean joinToSendProgress = false;
@@ -429,33 +462,35 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
                     builder.setPositiveButton(LocaleController.getString("DiscussionUnlink", R.string.DiscussionUnlink), (dialogInterface, i) -> {
                         if (!isChannel || info.linked_chat_id != 0) {
                             final AlertDialog[] progressDialog = new AlertDialog[]{new AlertDialog(getParentActivity(), 3)};
-                            TLRPC.TL_channels_setDiscussionGroup req = new TLRPC.TL_channels_setDiscussionGroup();
-                            if (isChannel) {
-                                req.broadcast = MessagesController.getInputChannel(currentChat);
-                                req.group = new TLRPC.TL_inputChannelEmpty();
-                            } else {
-                                req.broadcast = new TLRPC.TL_inputChannelEmpty();
-                                req.group = MessagesController.getInputChannel(currentChat);
-                            }
-                            int requestId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                            int requestId = presenter != null ? presenter.unlinkChat(currentChat, isChannel) : 0;
+                            AndroidUtilities.runOnUIThread(() -> {
                                 try {
-                                    progressDialog[0].dismiss();
+                                    if (progressDialog[0] != null) {
+                                        progressDialog[0].dismiss();
+                                    }
                                 } catch (Throwable ignore) {
-
                                 }
                                 progressDialog[0] = null;
                                 info.linked_chat_id = 0;
                                 NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.chatInfoDidLoad, info, 0, false, false);
-                                AndroidUtilities.runOnUIThread(() -> getMessagesController().loadFullChat(currentChatId, 0, true), 1000);
+                                AndroidUtilities.runOnUIThread(() -> {
+                                    if (presenter != null) {
+                                        presenter.loadFullChat(currentChatId, 0);
+                                    }
+                                }, 1000);
                                 if (!isChannel) {
                                     finishFragment();
                                 }
-                            }));
+                            });
                             AndroidUtilities.runOnUIThread(() -> {
                                 if (progressDialog[0] == null) {
                                     return;
                                 }
-                                progressDialog[0].setOnCancelListener(dialog -> ConnectionsManager.getInstance(currentAccount).cancelRequest(requestId, true));
+                                progressDialog[0].setOnCancelListener(dialog -> {
+                                    if (presenter != null) {
+                                        presenter.cancelRequest(requestId);
+                                    }
+                                });
                                 showDialog(progressDialog[0]);
                             }, 500);
                         }
@@ -562,33 +597,38 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
             return;
         }
         final AlertDialog[] progressDialog = new AlertDialog[]{createFragment != null ? null : new AlertDialog(getParentActivity(), 3)};
-        TLRPC.TL_channels_setDiscussionGroup req = new TLRPC.TL_channels_setDiscussionGroup();
-        req.broadcast = MessagesController.getInputChannel(currentChat);
-        req.group = MessagesController.getInputChannel(chat);
-        int requestId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+        int requestId = presenter != null ? presenter.linkChat(currentChat, chat) : 0;
+        AndroidUtilities.runOnUIThread(() -> {
             if (progressDialog[0] != null) {
                 try {
                     progressDialog[0].dismiss();
                 } catch (Throwable ignore) {
-
                 }
                 progressDialog[0] = null;
             }
             info.linked_chat_id = chat.id;
             NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.chatInfoDidLoad, info, 0, false, false);
-            AndroidUtilities.runOnUIThread(() -> getMessagesController().loadFullChat(currentChatId, 0, true), 1000);
+            AndroidUtilities.runOnUIThread(() -> {
+                if (presenter != null) {
+                    presenter.loadFullChat(currentChatId, 0);
+                }
+            }, 1000);
             if (createFragment != null) {
                 removeSelfFromStack();
                 createFragment.finishFragment();
             } else {
                 finishFragment();
             }
-        }), ConnectionsManager.RequestFlagInvokeAfter);
+        });
         AndroidUtilities.runOnUIThread(() -> {
             if (progressDialog[0] == null) {
                 return;
             }
-            progressDialog[0].setOnCancelListener(dialog -> ConnectionsManager.getInstance(currentAccount).cancelRequest(requestId, true));
+            progressDialog[0].setOnCancelListener(dialog -> {
+                if (presenter != null) {
+                    presenter.cancelRequest(requestId);
+                }
+            });
             showDialog(progressDialog[0]);
         }, 500);
     }
@@ -600,7 +640,7 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
     private void loadChats() {
         if (info.linked_chat_id != 0) {
             chats.clear();
-            TLRPC.Chat chat = getMessagesController().getChat(info.linked_chat_id);
+            TLRPC.Chat chat = presenter != null ? presenter.getChat(info.linked_chat_id) : getMessagesController().getChat(info.linked_chat_id);
             if (chat != null) {
                 chats.add(chat);
             }
@@ -612,17 +652,9 @@ public class ChatLinkActivity extends BaseFragment implements NotificationCenter
             return;
         }
         loadingChats = true;
-        TLRPC.TL_channels_getGroupsForDiscussion req = new TLRPC.TL_channels_getGroupsForDiscussion();
-        getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (response instanceof TLRPC.messages_Chats) {
-                TLRPC.messages_Chats res = (TLRPC.messages_Chats) response;
-                getMessagesController().putChats(res.chats, false);
-                chats = res.chats;
-            }
-            loadingChats = false;
-            chatsLoaded = true;
-            updateRows();
-        }));
+        if (presenter != null) {
+            presenter.loadDiscussionGroups();
+        }
     }
 
     @Override
