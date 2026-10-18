@@ -28,4 +28,8 @@ public interface ChatRepository {
     void setChatReactions(long chatId, int selectedType, List<String> reactions);
 
     List<TLRPC.TL_availableReaction> getEnabledReactionsList();
+
+    TLRPC.EncryptedChat getEncryptedChat(int chatId);
+
+    TLRPC.User getUser(long userId);
 }

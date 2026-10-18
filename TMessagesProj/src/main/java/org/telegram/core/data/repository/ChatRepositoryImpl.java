@@ -75,4 +75,14 @@ public class ChatRepositoryImpl implements ChatRepository {
     public List<TLRPC.TL_availableReaction> getEnabledReactionsList() {
         return new ArrayList<>(MediaDataController.getInstance(accountNum).getEnabledReactionsList());
     }
+
+    @Override
+    public TLRPC.EncryptedChat getEncryptedChat(int chatId) {
+        return MessagesController.getInstance(accountNum).getEncryptedChat(chatId);
+    }
+
+    @Override
+    public TLRPC.User getUser(long userId) {
+        return MessagesController.getInstance(accountNum).getUser(userId);
+    }
 }

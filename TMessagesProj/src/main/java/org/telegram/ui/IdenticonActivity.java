@@ -1,11 +1,3 @@
-/*
- * This is the source code of Telegram for Android v. 5.x.x.
- * It is licensed under GNU GPL v. 2 or later.
- * You should have received a copy of the license in this archive (see LICENSE).
- *
- * Copyright Nikolai Kudashov, 2013-2018.
- */
-
 package org.telegram.ui;
 
 import android.animation.Animator;
@@ -16,8 +8,6 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.Spannable;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -32,28 +22,26 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.telegram.core.data.repository.ChatRepositoryImpl;
+import org.telegram.core.presenter.IdenticonPresenter;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.Emoji;
-import org.telegram.messenger.EmojiData;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.NotificationCenter;
-import org.telegram.messenger.Utilities;
-import org.telegram.tgnet.TLRPC;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
+import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.LayoutHelper;
-import org.telegram.ui.ActionBar.Theme;
-import org.telegram.ui.Components.URLSpanReplacement;
 
 import java.util.ArrayList;
 
-public class IdenticonActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class IdenticonActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, IdenticonPresenter.View {
 
     private TextView textView;
     private TextView codeTextView;
@@ -63,6 +51,7 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     private LinearLayout linearLayout;
 
     private int chat_id;
+    private IdenticonPresenter presenter;
 
     private AnimatorSet animatorSet;
     private AnimatorSet hintAnimatorSet;
@@ -90,6 +79,9 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     @Override
     public boolean onFragmentCreate() {
         chat_id = getArguments().getInt("chat_id");
+        presenter = new IdenticonPresenter(new ChatRepositoryImpl(currentAccount), chat_id);
+        presenter.attachView(this);
+        presenter.onCreate();
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiLoaded);
         return super.onFragmentCreate();
     }
@@ -97,6 +89,9 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiLoaded);
     }
 
@@ -105,7 +100,6 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
         actionBar.setTitle(LocaleController.getString("EncryptionKey", R.string.EncryptionKey));
-
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public void onItemClick(int id) {
@@ -115,8 +109,9 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
             }
         });
 
-        fragmentView = new FrameLayout(context);
-        FrameLayout parentFrameLayout = (FrameLayout) fragmentView;
+        fragmentView = new LinearLayout(context);
+        LinearLayout parentFrameLayout = (LinearLayout) fragmentView;
+        parentFrameLayout.setOrientation(LinearLayout.VERTICAL);
         fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
         fragmentView.setOnTouchListener((v, event) -> true);
 
@@ -157,14 +152,6 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         codeTextView.setGravity(Gravity.CENTER);
         codeTextView.setTypeface(Typeface.MONOSPACE);
         codeTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
-        /*codeTextView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                emojiSelected = !emojiSelected;
-                updateEmojiButton(true);
-                showHint(false);
-            }
-        });*/
         linearLayout1.addView(codeTextView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
 
         textView = new TextView(context);
@@ -183,46 +170,14 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         emojiTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 32);
         container.addView(emojiTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
-        TLRPC.EncryptedChat encryptedChat = MessagesController.getInstance(currentAccount).getEncryptedChat(chat_id);
+        TLRPC.EncryptedChat encryptedChat = presenter.getEncryptedChat();
         if (encryptedChat != null) {
             IdenticonDrawable drawable = new IdenticonDrawable();
             identiconView.setImageDrawable(drawable);
             drawable.setEncryptedChat(encryptedChat);
-            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(encryptedChat.user_id);
-            SpannableStringBuilder hash = new SpannableStringBuilder();
-            StringBuilder emojis = new StringBuilder();
-            if (encryptedChat.key_hash.length > 16) {
-                String hex = Utilities.bytesToHex(encryptedChat.key_hash);
-                for (int a = 0; a < 32; a++) {
-                    if (a != 0) {
-                        if (a % 8 == 0) {
-                            hash.append('\n');
-                        } else if (a % 4 == 0) {
-                            hash.append(' ');
-                        }
-                    }
-                    hash.append(hex.substring(a * 2, a * 2 + 2));
-                    hash.append(' ');
-                }
-                hash.append("\n");
-                for (int a = 0; a < 5; a++) {
-                    int num = ((encryptedChat.key_hash[16 + a * 4] & 0x7f) << 24) | ((encryptedChat.key_hash[16 + a * 4 + 1] & 0xff) << 16) | ((encryptedChat.key_hash[16 + a * 4 + 2] & 0xff) << 8) | (encryptedChat.key_hash[16 + a * 4 + 3] & 0xff);
-                    if (a != 0) {
-                        emojis.append(" ");
-                    }
-                    emojis.append(EmojiData.emojiSecret[num % EmojiData.emojiSecret.length]);
-                }
-                emojiText = emojis.toString();
-            }
-            codeTextView.setText(hash.toString());
-            hash.clear();
-            hash.append(AndroidUtilities.replaceTags(LocaleController.formatString("EncryptionKeyDescription", R.string.EncryptionKeyDescription, user.first_name, user.first_name)));
-            final String url = "telegram.org";
-            int index = hash.toString().indexOf(url);
-            if (index != -1) {
-                hash.setSpan(new URLSpanReplacement(LocaleController.getString("EncryptionKeyLink", R.string.EncryptionKeyLink)), index, index + url.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            textView.setText(hash);
+            codeTextView.setText(presenter.getFormattedHash());
+            textView.setText(presenter.getExplanationText());
+            emojiText = presenter.getEmojiText();
         }
 
         updateEmojiButton(false);
