@@ -100,4 +100,33 @@ public class WebviewRepositoryImpl implements WebviewRepository {
             FileLog.e(e);
         }
     }
+
+    @Override
+    public GameShareData loadGameShareData(String hash) {
+        if (TextUtils.isEmpty(hash)) {
+            return null;
+        }
+        SharedPreferences sharedPreferences = ApplicationLoader.applicationContext.getSharedPreferences("botshare", Activity.MODE_PRIVATE);
+        String message = sharedPreferences.getString(hash + "_m", null);
+        if (TextUtils.isEmpty(message)) {
+            return null;
+        }
+        try {
+            SerializedData serializedData = new SerializedData(Utilities.hexToBytes(message));
+            TLRPC.Message mess = TLRPC.Message.TLdeserialize(serializedData, serializedData.readInt32(false), false);
+            if (mess == null) {
+                serializedData.cleanup();
+                return null;
+            }
+            mess.readAttachPath(serializedData, 0);
+            serializedData.cleanup();
+            String link = sharedPreferences.getString(hash + "_link", null);
+            MessageObject messageObject = new MessageObject(currentAccount, mess, false, true);
+            messageObject.messageOwner.with_my_score = true;
+            return new GameShareData(messageObject, link);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return null;
+        }
+    }
 }

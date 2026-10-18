@@ -5,6 +5,16 @@ import org.telegram.messenger.MessageObject;
 
 public interface WebviewRepository {
 
+    class GameShareData {
+        public final MessageObject messageObject;
+        public final String link;
+
+        public GameShareData(MessageObject messageObject, String link) {
+            this.messageObject = messageObject;
+            this.link = link;
+        }
+    }
+
     interface StatsUrlCallback {
         void onStatsUrlLoaded(String url);
     }
@@ -16,4 +26,6 @@ public interface WebviewRepository {
     void loadStatsUrl(long dialogId, String params, boolean isDark, StatsUrlCallback callback);
 
     void openGameInBrowser(String urlStr, MessageObject messageObject, Activity parentActivity, String short_name, String username);
+
+    GameShareData loadGameShareData(String hash);
 }
