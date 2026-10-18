@@ -52,14 +52,16 @@ import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.Bulletin;
 import org.telegram.ui.Components.BulletinFactory;
+import org.telegram.core.presenter.PrivacySettingsPresenter;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.TextStyleSpan;
 
 import java.util.ArrayList;
 
-public class PrivacySettingsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PrivacySettingsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, PrivacySettingsPresenter.PrivacySettingsView {
 
+    private PrivacySettingsPresenter presenter;
     private ListAdapter listAdapter;
     private RecyclerListView listView;
     private AlertDialog progressDialog;
@@ -118,14 +120,35 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
     private boolean[] clear = new boolean[2];
 
     @Override
+    public void onPasswordLoaded(TLRPC.account_Password password) {
+        currentPassword = password;
+        initPassword();
+    }
+
+    @Override
+    public void onAccountTTLSet() {
+        try {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        deleteAccountUpdate = true;
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
-
-        getContactsController().loadPrivacySettings();
-        getMessagesController().getBlockedPeers(true);
+        presenter = new PrivacySettingsPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.loadSettings();
         currentSync = newSync = getUserConfig().syncContacts;
         currentSuggest = newSuggest = getUserConfig().suggestContacts;
-        TLRPC.TL_globalPrivacySettings privacySettings = getContactsController().getGlobalPrivacySettings();
+        TLRPC.TL_globalPrivacySettings privacySettings = presenter.getGlobalPrivacySettings();
         if (privacySettings != null) {
             archiveChats = privacySettings.archive_and_mute_new_noncontact_peers;
         }
@@ -143,6 +166,9 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         getNotificationCenter().removeObserver(this, NotificationCenter.privacyRulesUpdated);
         getNotificationCenter().removeObserver(this, NotificationCenter.blockedUsersDidLoad);
         getNotificationCenter().removeObserver(this, NotificationCenter.didSetOrRemoveTwoStepPassword);
@@ -163,23 +189,16 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
             }
             getUserConfig().suggestContacts = newSuggest;
             save = true;
-            TLRPC.TL_contacts_toggleTopPeers req = new TLRPC.TL_contacts_toggleTopPeers();
-            req.enabled = newSuggest;
-            getConnectionsManager().sendRequest(req, (response, error) -> {
-
-            });
+            if (presenter != null) {
+                presenter.toggleTopPeers(newSuggest);
+            }
         }
-        TLRPC.TL_globalPrivacySettings globalPrivacySettings = getContactsController().getGlobalPrivacySettings();
+        TLRPC.TL_globalPrivacySettings globalPrivacySettings = presenter != null ? presenter.getGlobalPrivacySettings() : getContactsController().getGlobalPrivacySettings();
         if (globalPrivacySettings != null && globalPrivacySettings.archive_and_mute_new_noncontact_peers != archiveChats) {
-            globalPrivacySettings.archive_and_mute_new_noncontact_peers = archiveChats;
             save = true;
-            TLRPC.TL_account_setGlobalPrivacySettings req = new TLRPC.TL_account_setGlobalPrivacySettings();
-            req.settings = new TLRPC.TL_globalPrivacySettings();
-            req.settings.flags |= 1;
-            req.settings.archive_and_mute_new_noncontact_peers = archiveChats;
-            getConnectionsManager().sendRequest(req, (response, error) -> {
-
-            });
+            if (presenter != null) {
+                presenter.setGlobalPrivacySettings(archiveChats);
+            }
         }
         if (save) {
             getUserConfig().saveConfig(false);
@@ -276,25 +295,12 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                         } else if (which == 3) {
                             value = 365;
                         }
-                        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 3);
+                        progressDialog = new AlertDialog(getParentActivity(), 3);
                         progressDialog.setCanCancel(false);
                         progressDialog.show();
-
-                        final TLRPC.TL_account_setAccountTTL req = new TLRPC.TL_account_setAccountTTL();
-                        req.ttl = new TLRPC.TL_accountDaysTTL();
-                        req.ttl.days = value;
-                        getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                            try {
-                                progressDialog.dismiss();
-                            } catch (Exception e) {
-                                FileLog.e(e);
-                            }
-                            if (response instanceof TLRPC.TL_boolTrue) {
-                                deleteAccountUpdate = true;
-                                getContactsController().setDeleteAccountTTL(req.ttl.days);
-                                listAdapter.notifyDataSetChanged();
-                            }
-                        }));
+                        if (presenter != null) {
+                            presenter.setAccountTTL(value);
+                        }
                     });
                 }
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
@@ -402,11 +408,11 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                     progressDialog = builder12.show();
                     progressDialog.setCanCancel(false);
 
-                    if (currentSync != newSync) {
-                        currentSync = getUserConfig().syncContacts = newSync;
-                        getUserConfig().saveConfig(false);
+                    if (presenter != null) {
+                        presenter.deleteAllContacts(() -> progressDialog.dismiss());
+                    } else {
+                        getContactsController().deleteAllContacts(() -> progressDialog.dismiss());
                     }
-                    getContactsController().deleteAllContacts(() -> progressDialog.dismiss());
                 });
                 AlertDialog alertDialog = builder.create();
                 showDialog(alertDialog);
@@ -498,14 +504,9 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                     builder1.setTitle(LocaleController.getString("PrivacyPaymentsClearAlertTitle", R.string.PrivacyPaymentsClearAlertTitle));
                     builder1.setMessage(LocaleController.getString("PrivacyPaymentsClearAlert", R.string.PrivacyPaymentsClearAlert));
                     builder1.setPositiveButton(LocaleController.getString("ClearButton", R.string.ClearButton), (dialogInterface2, i2) -> {
-                        TLRPC.TL_payments_clearSavedInfo req = new TLRPC.TL_payments_clearSavedInfo();
-                        req.credentials = clear[1];
-                        req.info = clear[0];
-                        getUserConfig().tmpPassword = null;
-                        getUserConfig().saveConfig(false);
-                        getConnectionsManager().sendRequest(req, (response, error) -> {
-
-                        });
+                        if (presenter != null) {
+                            presenter.clearPaymentInfo(clear[0], clear[1]);
+                        }
                         String text;
                         if (clear[0] && clear[1]) {
                             text = LocaleController.getString("PrivacyPaymentsPaymentShippingCleared", R.string.PrivacyPaymentsPaymentShippingCleared);
@@ -684,16 +685,9 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
     }
 
     private void loadPasswordSettings() {
-        TLRPC.TL_account_getPassword req = new TLRPC.TL_account_getPassword();
-        getConnectionsManager().sendRequest(req, (response, error) -> {
-            if (response != null) {
-                TLRPC.account_Password password = (TLRPC.account_Password) response;
-                AndroidUtilities.runOnUIThread(() -> {
-                    currentPassword = password;
-                    initPassword();
-                });
-            }
-        }, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+        if (presenter != null) {
+            presenter.loadPasswordSettings();
+        }
     }
 
     public static String formatRulesString(AccountInstance accountInstance, int rulesType) {
@@ -1030,11 +1024,6 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                         privacyCell.setText(LocaleController.getString("PrivacyBotsInfo", R.string.PrivacyBotsInfo));
                         privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider, Theme.key_windowBackgroundGrayShadow));
                     } else if (position == contactsDetailRow) {
-                        /*if (newSync) {
-                            privacyCell.setText(LocaleController.getString("SyncContactsInfoOn", R.string.SyncContactsInfoOn));
-                        } else {
-                            privacyCell.setText(LocaleController.getString("SyncContactsInfoOff", R.string.SyncContactsInfoOff));
-                        }*/
                         privacyCell.setText(LocaleController.getString("SuggestContactsInfo", R.string.SuggestContactsInfo));
                         privacyCell.setBackgroundDrawable(Theme.getThemedDrawable(mContext, R.drawable.greydivider, Theme.key_windowBackgroundGrayShadow));
                     } else if (position == newChatsSectionRow) {

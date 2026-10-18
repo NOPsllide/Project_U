@@ -22,4 +22,28 @@ public interface PrivacyRepository {
     TLRPC.Chat getChat(long chatId);
 
     boolean isSupportUser(TLRPC.User user);
+
+    void loadPrivacySettings();
+
+    TLRPC.TL_globalPrivacySettings getGlobalPrivacySettings();
+
+    void setAccountTTL(int days, TTLCallback callback);
+
+    void deleteAllContacts(Runnable onComplete);
+
+    void clearPaymentInfo(boolean info, boolean credentials);
+
+    void loadPasswordSettings(PasswordCallback callback);
+
+    void toggleTopPeers(boolean enabled);
+
+    void setGlobalPrivacySettings(boolean archiveAndMute);
+
+    interface TTLCallback {
+        void onSuccess();
+    }
+
+    interface PasswordCallback {
+        void onSuccess(TLRPC.account_Password password);
+    }
 }
