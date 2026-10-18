@@ -14,4 +14,13 @@ public interface StickerRepository {
     void markFeaturedStickersAsRead(boolean query, boolean server);
 
     void toggleStickerSet(Object parentActivity, TLRPC.StickerSetCovered pack, int installType, Object baseFragment, boolean showSettings, boolean showTooltip);
+
+    void getArchivedStickers(int type, long offsetId, int limit, ArchivedStickersCallback callback);
+
+    boolean isStickerPackInstalled(long setId);
+
+    interface ArchivedStickersCallback {
+        void onSuccess(TLRPC.TL_messages_archivedStickers response);
+        void onError();
+    }
 }
