@@ -17,6 +17,7 @@ import android.widget.FrameLayout;
 import org.telegram.core.data.repository.SettingsRepositoryImpl;
 import org.telegram.core.presenter.QuickRepliesPresenter;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.ActionBar;
@@ -55,7 +56,7 @@ public class QuickRepliesSettingsActivity extends BaseFragment implements QuickR
 	public boolean onFragmentCreate() {
 		super.onFragmentCreate();
 
-		presenter = new QuickRepliesPresenter(new SettingsRepositoryImpl(getParentActivity()));
+		presenter = new QuickRepliesPresenter(new SettingsRepositoryImpl(ApplicationLoader.applicationContext));
 		presenter.attachView(this);
 
 		rowCount = 0;

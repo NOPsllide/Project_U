@@ -6,22 +6,22 @@ import android.text.TextUtils;
 
 public class SettingsRepositoryImpl implements SettingsRepository {
 
-    private final Context context;
+    private final Context applicationContext;
     private static final String PREFS_NAME = "mainconfig";
 
     public SettingsRepositoryImpl(Context context) {
-        this.context = context;
+        this.applicationContext = context.getApplicationContext();
     }
 
     @Override
     public String getQuickReply(int index) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         return prefs.getString("quick_reply_msg" + index, "");
     }
 
     @Override
     public void saveQuickReply(int index, String text) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
         if (!TextUtils.isEmpty(text)) {
             editor.putString("quick_reply_msg" + index, text);
@@ -33,13 +33,13 @@ public class SettingsRepositoryImpl implements SettingsRepository {
 
     @Override
     public boolean getAllowCustomQuickReply() {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         return prefs.getBoolean("quick_reply_allow_custom", true);
     }
 
     @Override
     public void setAllowCustomQuickReply(boolean allow) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
         editor.putBoolean("quick_reply_allow_custom", allow);
         editor.apply();
