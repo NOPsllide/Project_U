@@ -10,7 +10,6 @@ package org.telegram.ui;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.Vibrator;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -25,16 +24,16 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.os.Vibrator;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.messenger.UserConfig;
-import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.core.data.repository.UserRepository;
+import org.telegram.core.data.repository.UserRepositoryImpl;
+import org.telegram.core.presenter.ChangeBioPresenter;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -49,17 +48,24 @@ import org.telegram.ui.Components.NumberTextView;
 
 import java.util.ArrayList;
 
-public class ChangeBioActivity extends BaseFragment {
+public class ChangeBioActivity extends BaseFragment implements ChangeBioPresenter.View {
 
     private EditTextBoldCursor firstNameField;
     private View doneButton;
     private NumberTextView checkTextView;
     private TextView helpTextView;
+    private AlertDialog progressDialog;
+
+    private ChangeBioPresenter presenter;
 
     private final static int done_button = 1;
 
     @Override
     public View createView(Context context) {
+        UserRepository repository = new UserRepositoryImpl(currentAccount);
+        presenter = new ChangeBioPresenter(repository, currentAccount);
+        presenter.attachView(this);
+
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
         actionBar.setTitle(LocaleController.getString("UserBio", R.string.UserBio));
@@ -69,7 +75,7 @@ public class ChangeBioActivity extends BaseFragment {
                 if (id == -1) {
                     finishFragment();
                 } else if (id == done_button) {
-                    saveName();
+                    presenter.saveBio(firstNameField.getText().toString());
                 }
             }
         });
@@ -86,12 +92,14 @@ public class ChangeBioActivity extends BaseFragment {
         FrameLayout fieldContainer = new FrameLayout(context);
         linearLayout.addView(fieldContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 24, 24, 20, 0));
 
+        int aboutLimit = presenter.getAboutLimit();
+
         firstNameField = new EditTextBoldCursor(context) {
             @Override
             public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(info);
                 Editable s = getEditableText();
-                int number = getMessagesController().getAboutLimit() - Character.codePointCount(s, 0, s.length());
+                int number = aboutLimit - Character.codePointCount(s, 0, s.length());
                 info.setText(getText() + ", " + LocaleController.formatPluralString("PeopleJoinedRemaining", number));
             }
         };
@@ -107,7 +115,7 @@ public class ChangeBioActivity extends BaseFragment {
         firstNameField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         firstNameField.setImeOptions(EditorInfo.IME_ACTION_DONE);
         InputFilter[] inputFilters = new InputFilter[1];
-        inputFilters[0] = new CodepointsLengthInputFilter(getMessagesController().getAboutLimit()) {
+        inputFilters[0] = new CodepointsLengthInputFilter(aboutLimit) {
             @Override
             public CharSequence filter(CharSequence source, int start, int end, Spanned dest, int dstart, int dend) {
                 if (source != null && source.length() > 0 && TextUtils.indexOf(source, '\n') == source.length() - 1) {
@@ -151,7 +159,7 @@ public class ChangeBioActivity extends BaseFragment {
 
             @Override
             public void afterTextChanged(Editable s) {
-                checkTextView.setNumber(getMessagesController().getAboutLimit() - Character.codePointCount(s, 0, s.length()), true);
+                checkTextView.setNumber(aboutLimit - Character.codePointCount(s, 0, s.length()), true);
             }
         });
 
@@ -160,7 +168,7 @@ public class ChangeBioActivity extends BaseFragment {
         checkTextView = new NumberTextView(context);
         checkTextView.setCenterAlign(true);
         checkTextView.setTextSize(15);
-        checkTextView.setNumber(getMessagesController().getAboutLimit(), false);
+        checkTextView.setNumber(aboutLimit, false);
         checkTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText4));
         checkTextView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         fieldContainer.addView(checkTextView, LayoutHelper.createFrame(26, 20, LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT, 0, 4, 4, 0));
@@ -173,11 +181,7 @@ public class ChangeBioActivity extends BaseFragment {
         helpTextView.setText(AndroidUtilities.replaceTags(LocaleController.getString("UserBioInfo", R.string.UserBioInfo)));
         linearLayout.addView(helpTextView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT, 24, 10, 24, 0));
 
-        TLRPC.UserFull userFull = MessagesController.getInstance(currentAccount).getUserFull(UserConfig.getInstance(currentAccount).getClientUserId());
-        if (userFull != null && userFull.about != null) {
-            firstNameField.setText(userFull.about);
-            firstNameField.setSelection(firstNameField.length());
-        }
+        presenter.loadCurrentBio();
 
         return fragmentView;
     }
@@ -193,63 +197,63 @@ public class ChangeBioActivity extends BaseFragment {
         }
     }
 
-    private void saveName() {
-        final TLRPC.UserFull userFull = MessagesController.getInstance(currentAccount).getUserFull(UserConfig.getInstance(currentAccount).getClientUserId());
-        if (getParentActivity() == null || userFull == null) {
-            return;
-        }
-        String currentName = userFull.about;
-        if (currentName == null) {
-            currentName = "";
-        }
-        final String newName = firstNameField.getText().toString().replace("\n", "");
-        if (currentName.equals(newName)) {
-            finishFragment();
-            return;
-        }
-
-        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 3);
-
-        final TLRPC.TL_account_updateProfile req = new TLRPC.TL_account_updateProfile();
-        req.about = newName;
-        req.flags |= 4;
-
-        final int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            if (error == null) {
-                final TLRPC.User user = (TLRPC.User)response;
-                AndroidUtilities.runOnUIThread(() -> {
-                    try {
-                        progressDialog.dismiss();
-                    } catch (Exception e) {
-                        FileLog.e(e);
-                    }
-                    userFull.about = newName;
-                    NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.userInfoDidLoad, user.id, userFull);
-                    finishFragment();
-                });
-            } else {
-                AndroidUtilities.runOnUIThread(() -> {
-                    try {
-                        progressDialog.dismiss();
-                    } catch (Exception e) {
-                        FileLog.e(e);
-                    }
-                    AlertsCreator.processError(currentAccount, error, ChangeBioActivity.this, req);
-                });
-            }
-        }, ConnectionsManager.RequestFlagFailOnServerErrors);
-        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
-
-        progressDialog.setOnCancelListener(dialog -> ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true));
-        progressDialog.show();
-    }
-
     @Override
     public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
         if (isOpen) {
             firstNameField.requestFocus();
             AndroidUtilities.showKeyboard(firstNameField);
         }
+    }
+
+    @Override
+    public boolean onFragmentCreate() {
+        boolean result = super.onFragmentCreate();
+        return result;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void showCurrentBio(String bio) {
+        if (bio != null && !bio.isEmpty()) {
+            firstNameField.setText(bio);
+            firstNameField.setSelection(firstNameField.length());
+        }
+    }
+
+    @Override
+    public void showLoading() {
+        if (getParentActivity() == null) return;
+        progressDialog = new AlertDialog(getParentActivity(), 3);
+        progressDialog.setOnCancelListener(dialog -> presenter.cancelSave());
+        progressDialog.show();
+    }
+
+    @Override
+    public void hideLoading() {
+        if (progressDialog != null) {
+            try {
+                progressDialog.dismiss();
+            } catch (Exception ignored) {
+            }
+            progressDialog = null;
+        }
+    }
+
+    @Override
+    public void showError(int accountNum, TLRPC.TL_error error, TLRPC.TL_account_updateProfile req) {
+        AlertsCreator.processError(accountNum, error, ChangeBioActivity.this, req);
+    }
+
+    @Override
+    public void closeScreen() {
+        finishFragment();
     }
 
     @Override
