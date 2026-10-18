@@ -51,4 +51,9 @@ public class PrivacyRepositoryImpl implements PrivacyRepository {
     public TLRPC.Chat getChat(long chatId) {
         return MessagesController.getInstance(accountNum).getChat(chatId);
     }
+
+    @Override
+    public boolean isSupportUser(TLRPC.User user) {
+        return MessagesController.isSupportUser(user);
+    }
 }

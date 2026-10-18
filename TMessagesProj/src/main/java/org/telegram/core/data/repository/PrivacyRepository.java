@@ -20,4 +20,6 @@ public interface PrivacyRepository {
     TLRPC.User getUser(long userId);
 
     TLRPC.Chat getChat(long chatId);
+
+    boolean isSupportUser(TLRPC.User user);
 }

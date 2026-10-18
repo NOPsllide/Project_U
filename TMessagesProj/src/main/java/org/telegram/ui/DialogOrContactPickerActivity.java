@@ -37,6 +37,7 @@ import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ActionBar.ThemeDescription;
+import org.telegram.core.presenter.DialogOrContactPickerPresenter;
 import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
@@ -44,7 +45,7 @@ import org.telegram.ui.Components.ScrollSlidingTextTabStrip;
 
 import java.util.ArrayList;
 
-public class DialogOrContactPickerActivity extends BaseFragment {
+public class DialogOrContactPickerActivity extends BaseFragment implements DialogOrContactPickerPresenter.DialogOrContactPickerView {
 
     private static class ViewPage extends FrameLayout {
         private BaseFragment parentFragment;
@@ -59,6 +60,7 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         }
     }
 
+    private DialogOrContactPickerPresenter presenter;
     private DialogsActivity dialogsActivity;
     private ContactsActivity contactsActivity;
     private ActionBarMenuItem searchItem;
@@ -83,6 +85,9 @@ public class DialogOrContactPickerActivity extends BaseFragment {
     public DialogOrContactPickerActivity() {
         super();
 
+        presenter = new DialogOrContactPickerPresenter(currentAccount);
+        presenter.attachView(this);
+
         Bundle args = new Bundle();
         args.putBoolean("onlySelect", true);
         args.putBoolean("checkCanWrite", false);
@@ -94,11 +99,9 @@ public class DialogOrContactPickerActivity extends BaseFragment {
                 return;
             }
             long did = dids.get(0).dialogId;
-            if (!DialogObject.isUserDialog(did)) {
-                return;
+            if (presenter != null) {
+                presenter.onDialogSelected(did);
             }
-            TLRPC.User user = getMessagesController().getUser(did);
-            showBlockAlert(user);
         });
         dialogsActivity.onFragmentCreate();
 
@@ -111,7 +114,11 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         args.putBoolean("resetDelegate", false);
         args.putBoolean("allowSelf", false);
         contactsActivity = new ContactsActivity(args);
-        contactsActivity.setDelegate((user, param, activity) -> showBlockAlert(user));
+        contactsActivity.setDelegate((user, param, activity) -> {
+            if (presenter != null) {
+                presenter.onContactSelected(user);
+            }
+        });
         contactsActivity.onFragmentCreate();
     }
 
@@ -602,6 +609,9 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         if (contactsActivity != null) {
             contactsActivity.onFragmentDestroy();
         }
+        if (presenter != null) {
+            presenter.detachView();
+        }
         super.onFragmentDestroy();
     }
 
@@ -616,7 +626,8 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         fragmentView.invalidate();
     }
 
-    private void showBlockAlert(TLRPC.User user) {
+    @Override
+    public void showBlockConfirmation(TLRPC.User user) {
         if (user == null) {
             return;
         }
@@ -624,13 +635,9 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         builder.setTitle(LocaleController.getString("BlockUser", R.string.BlockUser));
         builder.setMessage(AndroidUtilities.replaceTags(LocaleController.formatString("AreYouSureBlockContact2", R.string.AreYouSureBlockContact2, ContactsController.formatName(user.first_name, user.last_name))));
         builder.setPositiveButton(LocaleController.getString("BlockContact", R.string.BlockContact), (dialogInterface, i) -> {
-            if (MessagesController.isSupportUser(user)) {
-                AlertsCreator.showSimpleToast(DialogOrContactPickerActivity.this, LocaleController.getString("ErrorOccurred", R.string.ErrorOccurred));
-            } else {
-                MessagesController.getInstance(currentAccount).blockPeer(user.id);
-                AlertsCreator.showSimpleToast(DialogOrContactPickerActivity.this, LocaleController.getString("UserBlocked", R.string.UserBlocked));
+            if (presenter != null) {
+                presenter.confirmBlockUser(user);
             }
-            finishFragment();
         });
         builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
         AlertDialog dialog = builder.create();
@@ -639,6 +646,21 @@ public class DialogOrContactPickerActivity extends BaseFragment {
         if (button != null) {
             button.setTextColor(Theme.getColor(Theme.key_dialogTextRed2));
         }
+    }
+
+    @Override
+    public void showBlockError() {
+        AlertsCreator.showSimpleToast(DialogOrContactPickerActivity.this, LocaleController.getString("ErrorOccurred", R.string.ErrorOccurred));
+    }
+
+    @Override
+    public void showBlockSuccess() {
+        AlertsCreator.showSimpleToast(DialogOrContactPickerActivity.this, LocaleController.getString("UserBlocked", R.string.UserBlocked));
+    }
+
+    @Override
+    public void finishScreen() {
+        finishFragment();
     }
 
     private void updateTabs() {
