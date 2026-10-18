@@ -24,17 +24,16 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 
+import org.telegram.core.presenter.ExternalActionPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
-import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -48,7 +47,15 @@ import org.telegram.ui.Components.SizeNotifierFrameLayout;
 
 import java.util.ArrayList;
 
-public class ExternalActionActivity extends Activity implements INavigationLayout.INavigationLayoutDelegate {
+public class ExternalActionActivity extends Activity implements INavigationLayout.INavigationLayoutDelegate, ExternalActionPresenter.ExternalActionView {
+
+    protected ExternalActionPresenter presenter;
+    private AlertDialog progressDialog;
+    private long pendingBotId;
+    private String pendingNonce;
+    private String pendingPayload;
+    private String pendingScope;
+    private String pendingPublicKey;
 
     private boolean finished;
     private static ArrayList<BaseFragment> mainFragmentsStack = new ArrayList<>();
@@ -179,8 +186,6 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
             launchLayout.addView(actionBarLayout.getView(), LayoutHelper.createRelative(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         }
 
-        // drawerLayoutContainer.setDrawerLayout(listView);
-
         drawerLayoutContainer.setParentActionBarLayout(actionBarLayout);
         actionBarLayout.setDrawerLayoutContainer(drawerLayoutContainer);
         actionBarLayout.setFragmentStack(mainFragmentsStack);
@@ -188,6 +193,9 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
 
         passcodeView = new PasscodeView(this);
         drawerLayoutContainer.addView(passcodeView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+
+        presenter = new ExternalActionPresenter();
+        presenter.attachView(this);
 
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.closeOtherAppActivities, this);
 
@@ -198,6 +206,82 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
 
         handleIntent(getIntent(), false, savedInstanceState != null, false, UserConfig.selectedAccount, 0);
         needLayout();
+    }
+
+    @Override
+    public void showLoadingProgress() {
+        if (progressDialog == null) {
+            progressDialog = new AlertDialog(this, 3);
+            progressDialog.setOnCancelListener(dialog -> {
+                if (presenter != null) {
+                    presenter.cancelCurrentRequest(UserConfig.selectedAccount);
+                }
+            });
+        }
+        try {
+            progressDialog.show();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
+    @Override
+    public void hideLoadingProgress() {
+        if (progressDialog != null) {
+            try {
+                progressDialog.dismiss();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }
+    }
+
+    @Override
+    public void onPassportAuthSuccess(TLRPC.TL_account_authorizationForm authorizationForm, TLRPC.account_Password accountPassword) {
+        PassportActivity fragment = new PassportActivity(PassportActivity.TYPE_PASSWORD, pendingBotId, pendingScope, pendingPublicKey, pendingPayload, pendingNonce, null, authorizationForm, accountPassword);
+        fragment.setNeedActivityResult(true);
+        if (AndroidUtilities.isTablet()) {
+            layersActionBarLayout.addFragmentToStack(fragment);
+        } else {
+            actionBarLayout.addFragmentToStack(fragment);
+        }
+        if (!AndroidUtilities.isTablet()) {
+            backgroundTablet.setVisibility(View.GONE);
+        }
+        actionBarLayout.showLastFragment();
+        if (AndroidUtilities.isTablet()) {
+            layersActionBarLayout.showLastFragment();
+        }
+    }
+
+    @Override
+    public void onPassportAuthError(String errorText) {
+        try {
+            if ("APP_VERSION_OUTDATED".equals(errorText)) {
+                AlertDialog dialog = AlertsCreator.showUpdateAppAlert(ExternalActionActivity.this, LocaleController.getString("UpdateAppAlert", R.string.UpdateAppAlert), true);
+                if (dialog != null) {
+                    dialog.setOnDismissListener(dialog1 -> {
+                        setResult(RESULT_FIRST_USER, new Intent().putExtra("error", errorText));
+                        finish();
+                    });
+                } else {
+                    setResult(RESULT_FIRST_USER, new Intent().putExtra("error", errorText));
+                    finish();
+                }
+            } else if (("BOT_INVALID".equals(errorText) ||
+                    "PUBLIC_KEY_REQUIRED".equals(errorText) ||
+                    "PUBLIC_KEY_INVALID".equals(errorText)
+                    || "SCOPE_EMPTY".equals(errorText) ||
+                    "PAYLOAD_EMPTY".equals(errorText))) {
+                setResult(RESULT_FIRST_USER, new Intent().putExtra("error", errorText));
+                finish();
+            } else {
+                setResult(RESULT_CANCELED);
+                finish();
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     private void showPasscodeActivity() {
@@ -309,83 +393,23 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
             final long bot_id = intent.getLongExtra("bot_id", intent.getIntExtra("bot_id", 0));
             final String nonce = intent.getStringExtra("nonce");
             final String payload = intent.getStringExtra("payload");
-            final TLRPC.TL_account_getAuthorizationForm req = new TLRPC.TL_account_getAuthorizationForm();
-            req.bot_id = bot_id;
-            req.scope = intent.getStringExtra("scope");
-            req.public_key = intent.getStringExtra("public_key");
+            final String scope = intent.getStringExtra("scope");
+            final String public_key = intent.getStringExtra("public_key");
 
-            if (bot_id == 0 || TextUtils.isEmpty(payload) && TextUtils.isEmpty(nonce) || TextUtils.isEmpty(req.scope) || TextUtils.isEmpty(req.public_key)) {
+            if (bot_id == 0 || TextUtils.isEmpty(payload) && TextUtils.isEmpty(nonce) || TextUtils.isEmpty(scope) || TextUtils.isEmpty(public_key)) {
                 finish();
                 return false;
             }
 
-            final int[] requestId = {0};
+            pendingBotId = bot_id;
+            pendingNonce = nonce;
+            pendingPayload = payload;
+            pendingScope = scope;
+            pendingPublicKey = public_key;
 
-            final AlertDialog progressDialog = new AlertDialog(this, 3);
-            progressDialog.setOnCancelListener(dialog -> ConnectionsManager.getInstance(intentAccount).cancelRequest(requestId[0], true));
-
-            progressDialog.show();
-            requestId[0] = ConnectionsManager.getInstance(intentAccount).sendRequest(req, (response, error) -> {
-                final TLRPC.TL_account_authorizationForm authorizationForm = (TLRPC.TL_account_authorizationForm) response;
-                if (authorizationForm != null) {
-                    TLRPC.TL_account_getPassword req2 = new TLRPC.TL_account_getPassword();
-                    requestId[0] = ConnectionsManager.getInstance(intentAccount).sendRequest(req2, (response1, error1) -> AndroidUtilities.runOnUIThread(() -> {
-                        try {
-                            progressDialog.dismiss();
-                        } catch (Exception e) {
-                            FileLog.e(e);
-                        }
-                        if (response1 != null) {
-                            TLRPC.account_Password accountPassword = (TLRPC.account_Password) response1;
-                            MessagesController.getInstance(intentAccount).putUsers(authorizationForm.users, false);
-                            PassportActivity fragment = new PassportActivity(PassportActivity.TYPE_PASSWORD, req.bot_id, req.scope, req.public_key, payload, nonce, null, authorizationForm, accountPassword);
-                            fragment.setNeedActivityResult(true);
-                            if (AndroidUtilities.isTablet()) {
-                                layersActionBarLayout.addFragmentToStack(fragment);
-                            } else {
-                                actionBarLayout.addFragmentToStack(fragment);
-                            }
-                            if (!AndroidUtilities.isTablet()) {
-                                backgroundTablet.setVisibility(View.GONE);
-                            }
-                            actionBarLayout.showLastFragment();
-                            if (AndroidUtilities.isTablet()) {
-                                layersActionBarLayout.showLastFragment();
-                            }
-                        }
-                    }));
-                } else {
-                    AndroidUtilities.runOnUIThread(() -> {
-                        try {
-                            progressDialog.dismiss();
-                            if ("APP_VERSION_OUTDATED".equals(error.text)) {
-                                AlertDialog dialog = AlertsCreator.showUpdateAppAlert(ExternalActionActivity.this, LocaleController.getString("UpdateAppAlert", R.string.UpdateAppAlert), true);
-                                if (dialog != null) {
-                                    dialog.setOnDismissListener(dialog1 -> {
-                                        setResult(RESULT_FIRST_USER, new Intent().putExtra("error", error.text));
-                                        finish();
-                                    });
-                                } else {
-                                    setResult(RESULT_FIRST_USER, new Intent().putExtra("error", error.text));
-                                    finish();
-                                }
-                            } else if (("BOT_INVALID".equals(error.text) ||
-                                    "PUBLIC_KEY_REQUIRED".equals(error.text) ||
-                                    "PUBLIC_KEY_INVALID".equals(error.text)
-                                    || "SCOPE_EMPTY".equals(error.text) ||
-                                    "PAYLOAD_EMPTY".equals(error.text))) {
-                                setResult(RESULT_FIRST_USER, new Intent().putExtra("error", error.text));
-                                finish();
-                            } else {
-                                setResult(RESULT_CANCELED);
-                                finish();
-                            }
-                        } catch (Exception e) {
-                            FileLog.e(e);
-                        }
-                    });
-                }
-            }, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+            if (presenter != null) {
+                presenter.loadAuthorizationForm(intentAccount, bot_id, scope, public_key);
+            }
         } else {
             if (AndroidUtilities.isTablet()) {
                 if (layersActionBarLayout.getFragmentStack().isEmpty()) {
@@ -409,14 +433,14 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
     }
 
     public void switchToAccount(int account) {
-        if (account == UserConfig.selectedAccount) {
-            return;
-        }
-        ConnectionsManager.getInstance(UserConfig.selectedAccount).setAppPaused(true, false);
-        UserConfig.selectedAccount = account;
-        UserConfig.getInstance(0).saveConfig(false);
-        if (!ApplicationLoader.mainInterfacePaused) {
-            ConnectionsManager.getInstance(UserConfig.selectedAccount).setAppPaused(false, false);
+        if (presenter != null) {
+            presenter.switchToAccount(account);
+        } else {
+            if (account == UserConfig.selectedAccount) {
+                return;
+            }
+            UserConfig.selectedAccount = account;
+            UserConfig.getInstance(0).saveConfig(false);
         }
     }
 
@@ -520,6 +544,9 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         onFinish();
     }
 
