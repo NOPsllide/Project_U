@@ -1,9 +1,15 @@
 package org.telegram.core.data.repository;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ChatObject;
+import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.MessagesStorage;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 public class ChatRepositoryImpl implements ChatRepository {
 
@@ -43,5 +49,30 @@ public class ChatRepositoryImpl implements ChatRepository {
     @Override
     public TLRPC.Chat getChat(long chatId) {
         return MessagesController.getInstance(accountNum).getChat(chatId);
+    }
+
+    @Override
+    public TLRPC.Chat getChatSync(long chatId) {
+        return MessagesStorage.getInstance(accountNum).getChatSync(chatId);
+    }
+
+    @Override
+    public TLRPC.ChatFull loadChatInfo(long chatId, boolean isChannel) {
+        return MessagesStorage.getInstance(accountNum).loadChatInfo(chatId, isChannel, new CountDownLatch(1), false, false);
+    }
+
+    @Override
+    public void putChat(TLRPC.Chat chat, boolean inCache) {
+        MessagesController.getInstance(accountNum).putChat(chat, inCache);
+    }
+
+    @Override
+    public void setChatReactions(long chatId, int selectedType, List<String> reactions) {
+        MessagesController.getInstance(accountNum).setChatReactions(chatId, selectedType, reactions);
+    }
+
+    @Override
+    public List<TLRPC.TL_availableReaction> getEnabledReactionsList() {
+        return new ArrayList<>(MediaDataController.getInstance(accountNum).getEnabledReactionsList());
     }
 }
