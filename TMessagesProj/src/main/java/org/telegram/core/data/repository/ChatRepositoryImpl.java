@@ -5,6 +5,7 @@ import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import java.util.ArrayList;
@@ -84,5 +85,41 @@ public class ChatRepositoryImpl implements ChatRepository {
     @Override
     public TLRPC.User getUser(long userId) {
         return MessagesController.getInstance(accountNum).getUser(userId);
+    }
+
+    @Override
+    public int loadInactiveChannels(InactiveChannelsCallback callback) {
+        TLRPC.TL_channels_getInactiveChannels inactiveChannelsRequest = new TLRPC.TL_channels_getInactiveChannels();
+        return ConnectionsManager.getInstance(accountNum).sendRequest(inactiveChannelsRequest, (response, error) -> {
+            if (error == null && response instanceof TLRPC.TL_messages_inactiveChats) {
+                TLRPC.TL_messages_inactiveChats chats = (TLRPC.TL_messages_inactiveChats) response;
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (callback != null) {
+                        callback.onSuccess(chats);
+                    }
+                });
+            } else {
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (callback != null) {
+                        callback.onError();
+                    }
+                });
+            }
+        });
+    }
+
+    @Override
+    public void deleteParticipantFromChat(long chatId, TLRPC.User user) {
+        MessagesController.getInstance(accountNum).deleteParticipantFromChat(chatId, user);
+    }
+
+    @Override
+    public long getClientUserId() {
+        return UserConfig.getInstance(accountNum).getClientUserId();
+    }
+
+    @Override
+    public int getCurrentTime() {
+        return ConnectionsManager.getInstance(accountNum).getCurrentTime();
     }
 }

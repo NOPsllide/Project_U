@@ -21,11 +21,10 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.telegram.core.presenter.TooManyCommunitiesPresenter;
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
-import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
@@ -45,29 +44,25 @@ import org.telegram.ui.Components.RadialProgressView;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
 
-public class TooManyCommunitiesActivity extends BaseFragment {
+public class TooManyCommunitiesActivity extends BaseFragment implements TooManyCommunitiesPresenter.TooManyCommunitiesView {
 
     public static final int TYPE_JOIN = 0;
     public static final int TYPE_EDIT = 1;
     public static final int TYPE_CREATE = 2;
+
+    private TooManyCommunitiesPresenter presenter;
 
     private RecyclerListView listView;
     private RecyclerListView searchListView;
     private TextView buttonTextView;
     private Adapter adapter;
     private SearchAdapter searchAdapter;
-    private ArrayList<TLRPC.Chat> inactiveChats = new ArrayList<>();
-    private ArrayList<String> inactiveChatsSignatures = new ArrayList<>();
     private FrameLayout buttonLayout;
     private EmptyTextProgressView emptyView;
     private FrameLayout searchViewContainer;
 
     private int buttonAnimation;
-
-    private Set<Long> selectedIds = new HashSet<>();
 
     private TooManyCommunitiesHintCell hintCell;
 
@@ -91,15 +86,11 @@ public class TooManyCommunitiesActivity extends BaseFragment {
     RecyclerListView.OnItemClickListener onItemClickListener = (view, position) -> {
         if (view instanceof GroupCreateUserCell) {
             TLRPC.Chat chat = (TLRPC.Chat) ((GroupCreateUserCell) view).getObject();
-            if (selectedIds.contains(chat.id)) {
-                selectedIds.remove(chat.id);
-                ((GroupCreateUserCell) view).setChecked(false, true);
-            } else {
-                selectedIds.add(chat.id);
-                ((GroupCreateUserCell) view).setChecked(true, true);
+            if (presenter != null) {
+                presenter.toggleChatSelection(chat.id);
+                ((GroupCreateUserCell) view).setChecked(presenter.isChatSelected(chat.id), true);
             }
-            onSelectedCountChange();
-            if (!selectedIds.isEmpty()) {
+            if (presenter != null && !presenter.getSelectedIds().isEmpty()) {
                 RecyclerListView list = searchViewContainer.getVisibility() == View.VISIBLE ? searchListView : listView;
                 int bottom = list.getHeight() - view.getBottom();
                 if (bottom < buttonHeight) {
@@ -122,8 +113,19 @@ public class TooManyCommunitiesActivity extends BaseFragment {
     }
 
     @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
     public View createView(Context context) {
         type = arguments.getInt("type", TYPE_JOIN);
+
+        presenter = new TooManyCommunitiesPresenter(currentAccount);
+        presenter.attachView(this);
 
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
@@ -141,7 +143,6 @@ public class TooManyCommunitiesActivity extends BaseFragment {
         ActionBarMenuItem searchItem = menu.addItem(0, R.drawable.ic_ab_search).setIsSearchField(true).setActionBarMenuItemSearchListener(new ActionBarMenuItem.ActionBarMenuItemSearchListener() {
 
             boolean expanded = false;
-
 
             @Override
             public void onSearchCollapse() {
@@ -166,7 +167,9 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             @Override
             public void onTextChanged(EditText editText) {
                 String query = editText.getText().toString();
-                searchAdapter.search(query);
+                if (searchAdapter != null) {
+                    searchAdapter.search(query);
+                }
                 if (!expanded && !TextUtils.isEmpty(query)) {
                     if (searchViewContainer.getVisibility() != View.VISIBLE) {
                         searchViewContainer.setVisibility(View.VISIBLE);
@@ -218,7 +221,6 @@ public class TooManyCommunitiesActivity extends BaseFragment {
         emptyView.setText(LocaleController.getString("NoResult", R.string.NoResult));
         emptyView.showTextView();
 
-
         progressBar = new RadialProgressView(context);
         contentView.addView(progressBar, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
         adapter.updateRows();
@@ -231,7 +233,7 @@ public class TooManyCommunitiesActivity extends BaseFragment {
         searchViewContainer.setVisibility(View.GONE);
         contentView.addView(searchViewContainer);
 
-        loadInactiveChannels();
+        presenter.loadInactiveChannels();
 
         fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
 
@@ -254,28 +256,15 @@ public class TooManyCommunitiesActivity extends BaseFragment {
         buttonLayout.addView(buttonTextView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, 0, 16, 12, 16, 12));
         buttonLayout.setVisibility(View.GONE);
         buttonTextView.setOnClickListener(v -> {
-            if (selectedIds.isEmpty()) {
-                return;
+            if (presenter != null) {
+                presenter.leaveSelectedChats();
             }
-            TLRPC.User currentUser = getMessagesController().getUser(getUserConfig().getClientUserId());
-            ArrayList<TLRPC.Chat> chats = new ArrayList<>();
-            for (int i = 0; i < inactiveChats.size(); i++) {
-                if (selectedIds.contains(inactiveChats.get(i).id)) {
-                    chats.add(inactiveChats.get(i));
-                }
-            }
-            for (int i = 0; i < chats.size(); i++) {
-                TLRPC.Chat chat = chats.get(i);
-                getMessagesController().putChat(chat, false);
-                getMessagesController().deleteParticipantFromChat(chat.id, currentUser);
-            }
-            finishFragment();
         });
         return fragmentView;
     }
 
-    private void onSelectedCountChange() {
-        if (selectedIds.isEmpty() && buttonAnimation != -1 && buttonLayout.getVisibility() == View.VISIBLE) {
+    private void onSelectedCountChange(int count) {
+        if (count == 0 && buttonAnimation != -1 && buttonLayout.getVisibility() == View.VISIBLE) {
             buttonAnimation = -1;
             buttonLayout.animate().setListener(null).cancel();
             buttonLayout.animate().translationY(buttonHeight).setDuration(200).setListener(new AnimatorListenerAdapter() {
@@ -306,9 +295,8 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             }
             listView.setPadding(0, 0, 0, 0);
             searchListView.setPadding(0, 0, 0, 0);
-
         }
-        if (!selectedIds.isEmpty() && buttonLayout.getVisibility() == View.GONE && buttonAnimation != 1) {
+        if (count > 0 && buttonLayout.getVisibility() == View.GONE && buttonAnimation != 1) {
             buttonAnimation = 1;
             buttonLayout.setVisibility(View.VISIBLE);
             buttonLayout.setTranslationY(buttonHeight);
@@ -324,81 +312,69 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             searchListView.setPadding(0, 0, 0, buttonHeight);
         }
 
-        if (!selectedIds.isEmpty()) {
-            buttonTextView.setText(LocaleController.formatString("LeaveChats", R.string.LeaveChats, LocaleController.formatPluralString("Chats", selectedIds.size())));
+        if (count > 0) {
+            buttonTextView.setText(LocaleController.formatString("LeaveChats", R.string.LeaveChats, LocaleController.formatPluralString("Chats", count)));
         }
     }
 
-    private void loadInactiveChannels() {
-        adapter.notifyDataSetChanged();
-        enterProgress = 0f;
-        AndroidUtilities.runOnUIThread(showProgressRunnable, 500);
-        TLRPC.TL_channels_getInactiveChannels inactiveChannelsRequest = new TLRPC.TL_channels_getInactiveChannels();
-        getConnectionsManager().sendRequest(inactiveChannelsRequest, ((response, error) -> {
-            if (error == null) {
-                final TLRPC.TL_messages_inactiveChats chats = (TLRPC.TL_messages_inactiveChats) response;
-                final ArrayList<String> signatures = new ArrayList<>();
-                for (int i = 0; i < chats.chats.size(); i++) {
-                    TLRPC.Chat chat = chats.chats.get(i);
-                    int currentDate = getConnectionsManager().getCurrentTime();
-                    int date = chats.dates.get(i);
-                    int daysDif = (currentDate - date) / 86400;
-
-                    String dateFormat;
-                    if (daysDif < 30) {
-                        dateFormat = LocaleController.formatPluralString("Days", daysDif);
-                    } else if (daysDif < 365) {
-                        dateFormat = LocaleController.formatPluralString("Months", daysDif / 30);
-                    } else {
-                        dateFormat = LocaleController.formatPluralString("Years", daysDif / 365);
+    @Override
+    public void showProgress(boolean show) {
+        if (show) {
+            enterProgress = 0f;
+            AndroidUtilities.runOnUIThread(showProgressRunnable, 500);
+        } else {
+            AndroidUtilities.cancelRunOnUIThread(showProgressRunnable);
+            if (progressBar != null && progressBar.getVisibility() == View.VISIBLE) {
+                progressBar.animate().alpha(0).setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        progressBar.setVisibility(View.GONE);
                     }
-                    if (ChatObject.isMegagroup(chat)) {
-                        String members = LocaleController.formatPluralString("Members", chat.participants_count);
-                        signatures.add(LocaleController.formatString("InactiveChatSignature", R.string.InactiveChatSignature, members, dateFormat));
-                    } else if (ChatObject.isChannel(chat)) {
-                        signatures.add(LocaleController.formatString("InactiveChannelSignature", R.string.InactiveChannelSignature, dateFormat));
+                }).start();
+            }
+        }
+    }
+
+    @Override
+    public void onInactiveChatsLoaded(ArrayList<TLRPC.Chat> chats, ArrayList<String> signatures) {
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+        if (listView != null && listView.getMeasuredHeight() > 0) {
+            enterAnimator = ValueAnimator.ofFloat(0, 1f);
+            enterAnimator.addUpdateListener(animation -> {
+                enterProgress = (float) animation.getAnimatedValue();
+                int n = listView.getChildCount();
+                for (int i = 0; i < n; i++) {
+                    if (listView.getChildAdapterPosition(listView.getChildAt(i)) >= adapter.headerPosition && adapter.headerPosition > 0) {
+                        listView.getChildAt(i).setAlpha(enterProgress);
                     } else {
-                        String members = LocaleController.formatPluralString("Members", chat.participants_count);
-                        signatures.add(LocaleController.formatString("InactiveChatSignature", R.string.InactiveChatSignature, members, dateFormat));
+                        listView.getChildAt(i).setAlpha(1f);
                     }
                 }
-                AndroidUtilities.runOnUIThread(() -> {
-                    inactiveChatsSignatures.clear();
-                    inactiveChats.clear();
-                    inactiveChatsSignatures.addAll(signatures);
-                    inactiveChats.addAll(chats.chats);
-                    adapter.notifyDataSetChanged();
-                    if (listView.getMeasuredHeight() > 0) {
-                        enterAnimator = ValueAnimator.ofFloat(0, 1f);
-                        enterAnimator.addUpdateListener(animation -> {
-                            enterProgress = (float) animation.getAnimatedValue();
-                            int n = listView.getChildCount();
-                            for (int i = 0; i < n; i++) {
-                                if (listView.getChildAdapterPosition(listView.getChildAt(i)) >= adapter.headerPosition && adapter.headerPosition > 0) {
-                                    listView.getChildAt(i).setAlpha(enterProgress);
-                                } else {
-                                    listView.getChildAt(i).setAlpha(1f);
-                                }
-                            }
-                        });
-                        enterAnimator.setDuration(100);
-                        enterAnimator.start();
-                    } else {
-                        enterProgress = 1f;
-                    }
+            });
+            enterAnimator.setDuration(100);
+            enterAnimator.start();
+        } else {
+            enterProgress = 1f;
+        }
+    }
 
-                    AndroidUtilities.cancelRunOnUIThread(showProgressRunnable);
-                    if (progressBar.getVisibility() == View.VISIBLE) {
-                        progressBar.animate().alpha(0).setListener(new AnimatorListenerAdapter() {
-                            @Override
-                            public void onAnimationEnd(Animator animation) {
-                                progressBar.setVisibility(View.GONE);
-                            }
-                        }).start();
-                    }
-                });
-            }
-        }));
+    @Override
+    public void onSearchResults(ArrayList<TLRPC.Chat> chats, ArrayList<String> signatures, int searchId) {
+        if (searchAdapter != null) {
+            searchAdapter.updateSearchResults(chats, signatures);
+        }
+    }
+
+    @Override
+    public void onSelectedCountChanged(int count) {
+        onSelectedCountChange(count);
+    }
+
+    @Override
+    public void finishScreen() {
+        finishFragment();
     }
 
     class Adapter extends RecyclerListView.SelectionAdapter {
@@ -429,14 +405,14 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             hintPosition = rowCount++;
             shadowPosition = rowCount++;
 
-            if (!inactiveChats.isEmpty()) {
+            int count = presenter != null ? presenter.getInactiveChats().size() : 0;
+            if (count > 0) {
                 headerPosition = rowCount++;
                 inactiveChatsStartRow = rowCount++;
-                rowCount += inactiveChats.size() - 1;
+                rowCount += count - 1;
                 inactiveChatsEndRow = rowCount;
                 endPaddingPosition = rowCount++;
             }
-
         }
 
         @NonNull
@@ -494,12 +470,13 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             } else {
                 holder.itemView.setAlpha(1f);
             }
-            if (getItemViewType(position) == 4) {
+            if (getItemViewType(position) == 4 && presenter != null) {
                 GroupCreateUserCell cell = (GroupCreateUserCell) holder.itemView;
-                TLRPC.Chat chat = inactiveChats.get(position - inactiveChatsStartRow);
-                String signature = inactiveChatsSignatures.get(position - inactiveChatsStartRow);
+                int index = position - inactiveChatsStartRow;
+                TLRPC.Chat chat = presenter.getInactiveChats().get(index);
+                String signature = presenter.getInactiveChatsSignatures().get(index);
                 cell.setObject(chat, chat.title, signature, position != inactiveChatsEndRow - 1);
-                cell.setChecked(selectedIds.contains(chat.id), false);
+                cell.setChecked(presenter.isChatSelected(chat.id), false);
             }
         }
 
@@ -535,8 +512,6 @@ public class TooManyCommunitiesActivity extends BaseFragment {
 
         ArrayList<TLRPC.Chat> searchResults = new ArrayList<>();
         ArrayList<String> searchResultsSignatures = new ArrayList<>();
-        private Runnable searchRunnable;
-        private int lastSearchId;
 
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
@@ -555,7 +530,7 @@ public class TooManyCommunitiesActivity extends BaseFragment {
             String signature = searchResultsSignatures.get(position);
             GroupCreateUserCell cell = ((GroupCreateUserCell) holder.itemView);
             cell.setObject(chat, chat.title, signature, position != searchResults.size() - 1);
-            cell.setChecked(selectedIds.contains(chat.id), false);
+            cell.setChecked(presenter != null && presenter.isChatSelected(chat.id), false);
         }
 
         @Override
@@ -564,92 +539,30 @@ public class TooManyCommunitiesActivity extends BaseFragment {
         }
 
         public void search(final String query) {
-            if (searchRunnable != null) {
-                Utilities.searchQueue.cancelRunnable(searchRunnable);
-                searchRunnable = null;
+            if (presenter != null) {
+                presenter.search(query);
             }
-            if (TextUtils.isEmpty(query)) {
-                searchResults.clear();
-                searchResultsSignatures.clear();
-                notifyDataSetChanged();
-                emptyView.setVisibility(View.GONE);
+        }
+
+        public void updateSearchResults(ArrayList<TLRPC.Chat> chats, ArrayList<String> signatures) {
+            searchResults.clear();
+            searchResultsSignatures.clear();
+            if (chats != null) {
+                searchResults.addAll(chats);
+                searchResultsSignatures.addAll(signatures);
+            }
+            notifyDataSetChanged();
+            if (searchResults.isEmpty()) {
+                emptyView.setVisibility(View.VISIBLE);
             } else {
-                int searchId = ++lastSearchId;
-                Utilities.searchQueue.postRunnable(searchRunnable = () -> processSearch(query, searchId), 300);
+                emptyView.setVisibility(View.GONE);
             }
-        }
-
-        public void processSearch(String query, int id) {
-            Utilities.searchQueue.postRunnable(() -> {
-                String search1 = query.trim().toLowerCase();
-                if (search1.length() == 0) {
-                    updateSearchResults(null, null, id);
-                    return;
-                }
-                String search2 = LocaleController.getInstance().getTranslitString(search1);
-                if (search1.equals(search2) || search2.length() == 0) {
-                    search2 = null;
-                }
-                String[] search = new String[1 + (search2 != null ? 1 : 0)];
-                search[0] = search1;
-                if (search2 != null) {
-                    search[1] = search2;
-                }
-
-                ArrayList<TLRPC.Chat> resultArray = new ArrayList<>();
-                ArrayList<String> resultArraySignatures = new ArrayList<>();
-
-                for (int a = 0; a < inactiveChats.size(); a++) {
-                    TLRPC.Chat chat = inactiveChats.get(a);
-                    boolean found = false;
-                    for (int i = 0; i < 2; i++) {
-                        String name = i == 0 ? chat.title : ChatObject.getPublicUsername(chat);
-                        if (name == null) {
-                            continue;
-                        }
-                        name = name.toLowerCase();
-                        for (String q : search) {
-                            if ((name.startsWith(q) || name.contains(" " + q))) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (found) {
-                            resultArray.add(chat);
-                            resultArraySignatures.add(inactiveChatsSignatures.get(a));
-                            break;
-                        }
-                    }
-                }
-
-                updateSearchResults(resultArray, resultArraySignatures, id);
-            });
-        }
-
-        private void updateSearchResults(ArrayList<TLRPC.Chat> chats, ArrayList<String> signatures, int searchId) {
-            AndroidUtilities.runOnUIThread(() -> {
-                if (searchId != lastSearchId) {
-                    return;
-                }
-                searchResults.clear();
-                searchResultsSignatures.clear();
-                if (chats != null) {
-                    searchResults.addAll(chats);
-                    searchResultsSignatures.addAll(signatures);
-                }
-                notifyDataSetChanged();
-                if (searchResults.isEmpty()) {
-                    emptyView.setVisibility(View.VISIBLE);
-                } else {
-                    emptyView.setVisibility(View.GONE);
-                }
-            });
-
         }
     }
 
     public ArrayList<ThemeDescription> getThemeDescriptions() {
-        ArrayList<ThemeDescription> themeDescriptions = new ArrayList<>();ThemeDescription.ThemeDescriptionDelegate cellDelegate = () -> {
+        ArrayList<ThemeDescription> themeDescriptions = new ArrayList<>();
+        ThemeDescription.ThemeDescriptionDelegate cellDelegate = () -> {
             if (listView != null) {
                 int count = listView.getChildCount();
                 for (int a = 0; a < count; a++) {

@@ -32,4 +32,17 @@ public interface ChatRepository {
     TLRPC.EncryptedChat getEncryptedChat(int chatId);
 
     TLRPC.User getUser(long userId);
+
+    int loadInactiveChannels(InactiveChannelsCallback callback);
+
+    void deleteParticipantFromChat(long chatId, TLRPC.User user);
+
+    long getClientUserId();
+
+    int getCurrentTime();
+
+    interface InactiveChannelsCallback {
+        void onSuccess(TLRPC.TL_messages_inactiveChats chats);
+        void onError();
+    }
 }
