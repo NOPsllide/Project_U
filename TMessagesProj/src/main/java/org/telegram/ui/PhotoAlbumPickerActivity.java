@@ -67,6 +67,7 @@ import org.telegram.ui.Components.CombinedDrawable;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.EditTextEmoji;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.core.presenter.PhotoAlbumPickerPresenter;
 import org.telegram.ui.Components.RadialProgressView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
@@ -74,13 +75,14 @@ import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-public class PhotoAlbumPickerActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PhotoAlbumPickerActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, PhotoAlbumPickerPresenter.PhotoAlbumPickerView {
 
     public interface PhotoAlbumPickerActivityDelegate {
         void didSelectPhotos(ArrayList<SendMessagesHelper.SendingMediaInfo> photos, boolean notify, int scheduleDate);
         void startPhotoSelectActivity();
     }
 
+    private PhotoAlbumPickerPresenter presenter = new PhotoAlbumPickerPresenter();
     private CharSequence caption;
     private HashMap<Object, Object> selectedPhotos = new HashMap<>();
     private ArrayList<Object> selectedPhotosOrder = new ArrayList<>();
@@ -137,13 +139,9 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     @Override
     public boolean onFragmentCreate() {
-        if (selectPhotoType == SELECT_TYPE_AVATAR || selectPhotoType == SELECT_TYPE_WALLPAPER || selectPhotoType == SELECT_TYPE_QR || !allowSearchImages) {
-            albumsSorted = MediaController.allPhotoAlbums;
-        } else {
-            albumsSorted = MediaController.allMediaAlbums;
-        }
+        presenter.attachView(this);
+        albumsSorted = presenter.loadInitialAlbums(selectPhotoType, allowSearchImages, classGuid);
         loading = albumsSorted == null;
-        MediaController.loadGalleryPhotosAlbums(classGuid);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.albumsDidLoad);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.closeChats);
         return super.onFragmentCreate();
@@ -151,6 +149,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     @Override
     public void onFragmentDestroy() {
+        presenter.detachView();
         if (commentTextView != null) {
             commentTextView.onDestroy();
         }
@@ -594,26 +593,34 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
     public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.albumsDidLoad) {
             int guid = (Integer) args[0];
-            if (classGuid == guid) {
-                if (selectPhotoType == SELECT_TYPE_AVATAR || selectPhotoType == SELECT_TYPE_WALLPAPER || selectPhotoType == SELECT_TYPE_QR || !allowSearchImages) {
-                    albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[2];
-                } else {
-                    albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[1];
-                }
-                if (progressView != null) {
-                    progressView.setVisibility(View.GONE);
-                }
-                if (listView != null && listView.getEmptyView() == null) {
-                    listView.setEmptyView(emptyView);
-                }
-                if (listAdapter != null) {
-                    listAdapter.notifyDataSetChanged();
-                }
-                loading = false;
-            }
+            presenter.onAlbumsLoaded(classGuid, guid, selectPhotoType, allowSearchImages, args);
         } else if (id == NotificationCenter.closeChats) {
-            removeSelfFromStack();
+            closeChats();
         }
+    }
+
+    @Override
+    public void showAlbums(ArrayList<MediaController.AlbumEntry> albums) {
+        albumsSorted = albums;
+        if (listView != null && listView.getEmptyView() == null) {
+            listView.setEmptyView(emptyView);
+        }
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void hideLoading() {
+        if (progressView != null) {
+            progressView.setVisibility(View.GONE);
+        }
+        loading = false;
+    }
+
+    @Override
+    public void closeChats() {
+        removeSelfFromStack();
     }
 
     @Override
@@ -643,49 +650,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             return;
         }
         sendPressed = true;
-
-        ArrayList<SendMessagesHelper.SendingMediaInfo> media = new ArrayList<>();
-        for (int a = 0; a < order.size(); a++) {
-            Object object = photos.get(order.get(a));
-            SendMessagesHelper.SendingMediaInfo info = new SendMessagesHelper.SendingMediaInfo();
-            media.add(info);
-            if (object instanceof MediaController.PhotoEntry) {
-                MediaController.PhotoEntry photoEntry = (MediaController.PhotoEntry) object;
-                if (photoEntry.imagePath != null) {
-                    info.path = photoEntry.imagePath;
-                } else {
-                    info.path = photoEntry.path;
-                }
-                info.thumbPath = photoEntry.thumbPath;
-                info.videoEditedInfo = photoEntry.editedInfo;
-                info.isVideo = photoEntry.isVideo;
-                info.caption = photoEntry.caption != null ? photoEntry.caption.toString() : null;
-                info.entities = photoEntry.entities;
-                info.masks = photoEntry.stickers;
-                info.ttl = photoEntry.ttl;
-            } else if (object instanceof MediaController.SearchImage) {
-                MediaController.SearchImage searchImage = (MediaController.SearchImage) object;
-                if (searchImage.imagePath != null) {
-                    info.path = searchImage.imagePath;
-                } else {
-                    info.searchImage = searchImage;
-                }
-                info.thumbPath = searchImage.thumbPath;
-                info.videoEditedInfo = searchImage.editedInfo;
-                info.caption = searchImage.caption != null ? searchImage.caption.toString() : null;
-                info.entities = searchImage.entities;
-                info.masks = searchImage.stickers;
-                info.ttl = searchImage.ttl;
-                if (searchImage.inlineResult != null && searchImage.type == 1) {
-                    info.inlineResult = searchImage.inlineResult;
-                    info.params = searchImage.params;
-                }
-
-                searchImage.date = (int) (System.currentTimeMillis() / 1000);
-            }
-        }
-
-        delegate.didSelectPhotos(media, notify, scheduleDate);
+        presenter.sendPhotos(photos, order, notify, scheduleDate, delegate);
     }
 
     private void fixLayout() {
