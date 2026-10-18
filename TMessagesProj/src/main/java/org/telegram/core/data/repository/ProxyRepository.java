@@ -14,7 +14,11 @@ public interface ProxyRepository {
 
     void setCurrentProxy(SharedConfig.ProxyInfo proxyInfo);
 
+    void addProxy(SharedConfig.ProxyInfo proxyInfo);
+
     void deleteProxy(SharedConfig.ProxyInfo proxyInfo);
+
+    void saveProxyList();
 
     boolean isProxyEnabled();
 

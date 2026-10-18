@@ -33,8 +33,18 @@ public class ProxyRepositoryImpl implements ProxyRepository {
     }
 
     @Override
+    public void addProxy(SharedConfig.ProxyInfo proxyInfo) {
+        SharedConfig.addProxy(proxyInfo);
+    }
+
+    @Override
     public void deleteProxy(SharedConfig.ProxyInfo proxyInfo) {
         SharedConfig.deleteProxy(proxyInfo);
+    }
+
+    @Override
+    public void saveProxyList() {
+        SharedConfig.saveProxyList();
     }
 
     @Override

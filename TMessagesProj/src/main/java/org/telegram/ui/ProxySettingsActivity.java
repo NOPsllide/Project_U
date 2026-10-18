@@ -13,7 +13,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
@@ -43,14 +42,14 @@ import android.widget.TextView;
 
 import androidx.core.graphics.ColorUtils;
 
+import org.telegram.core.data.repository.ProxyRepository;
+import org.telegram.core.data.repository.ProxyRepositoryImpl;
+import org.telegram.core.presenter.ProxySettingsPresenter;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.Utilities;
-import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -67,10 +66,9 @@ import org.telegram.ui.Components.LayoutHelper;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 
-public class ProxySettingsActivity extends BaseFragment {
+public class ProxySettingsActivity extends BaseFragment implements ProxySettingsPresenter.View {
 
     private final static int TYPE_SOCKS5 = 0;
     private final static int TYPE_MTPROTO = 1;
@@ -104,12 +102,8 @@ public class ProxySettingsActivity extends BaseFragment {
     private ValueAnimator shareDoneAnimator;
 
     private ClipboardManager clipboardManager;
-
-    private boolean addingNewProxy;
-
-    private SharedConfig.ProxyInfo currentProxyInfo;
-
     private boolean ignoreOnTextChange;
+    private ProxySettingsPresenter presenter;
 
     private static final int done_button = 1;
 
@@ -165,16 +159,37 @@ public class ProxySettingsActivity extends BaseFragment {
 
     public ProxySettingsActivity() {
         super();
-        currentProxyInfo = new SharedConfig.ProxyInfo("", 1080, "", "", "");
-        addingNewProxy = true;
+        ProxyRepository repository = new ProxyRepositoryImpl();
+        SharedConfig.ProxyInfo info = new SharedConfig.ProxyInfo("", 1080, "", "", "");
+        presenter = new ProxySettingsPresenter(repository, info, true);
     }
 
     public ProxySettingsActivity(SharedConfig.ProxyInfo proxyInfo) {
         super();
-        currentProxyInfo = proxyInfo;
+        ProxyRepository repository = new ProxyRepositoryImpl();
+        presenter = new ProxySettingsPresenter(repository, proxyInfo, false);
     }
 
     private ClipboardManager.OnPrimaryClipChangedListener clipChangedListener = this::updatePasteCell;
+
+    @Override
+    public boolean onFragmentCreate() {
+        if (presenter == null) {
+            ProxyRepository repository = new ProxyRepositoryImpl();
+            SharedConfig.ProxyInfo info = new SharedConfig.ProxyInfo("", 1080, "", "", "");
+            presenter = new ProxySettingsPresenter(repository, info, true);
+        }
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
 
     @Override
     public void onResume() {
@@ -192,6 +207,13 @@ public class ProxySettingsActivity extends BaseFragment {
 
     @Override
     public View createView(Context context) {
+        if (presenter == null) {
+            ProxyRepository repository = new ProxyRepositoryImpl();
+            SharedConfig.ProxyInfo info = new SharedConfig.ProxyInfo("", 1080, "", "", "");
+            presenter = new ProxySettingsPresenter(repository, info, true);
+            presenter.attachView(this);
+        }
+
         actionBar.setTitle(LocaleController.getString("ProxyDetails", R.string.ProxyDetails));
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(false);
@@ -205,46 +227,15 @@ public class ProxySettingsActivity extends BaseFragment {
                 if (id == -1) {
                     finishFragment();
                 } else if (id == done_button) {
-                    if (getParentActivity() == null) {
+                    if (getParentActivity() == null || presenter == null) {
                         return;
                     }
-                    currentProxyInfo.address = inputFields[FIELD_IP].getText().toString();
-                    currentProxyInfo.port = Utilities.parseInt(inputFields[FIELD_PORT].getText().toString());
-                    if (currentType == 0) {
-                        currentProxyInfo.secret = "";
-                        currentProxyInfo.username = inputFields[FIELD_USER].getText().toString();
-                        currentProxyInfo.password = inputFields[FIELD_PASSWORD].getText().toString();
-                    } else {
-                        currentProxyInfo.secret = inputFields[FIELD_SECRET].getText().toString();
-                        currentProxyInfo.username = "";
-                        currentProxyInfo.password = "";
-                    }
-
-                    SharedPreferences preferences = MessagesController.getGlobalMainSettings();
-                    SharedPreferences.Editor editor = preferences.edit();
-                    boolean enabled;
-                    if (addingNewProxy) {
-                        SharedConfig.addProxy(currentProxyInfo);
-                        SharedConfig.currentProxy = currentProxyInfo;
-                        editor.putBoolean("proxy_enabled", true);
-                        enabled = true;
-                    } else {
-                        enabled = preferences.getBoolean("proxy_enabled", false);
-                        SharedConfig.saveProxyList();
-                    }
-                    if (addingNewProxy || SharedConfig.currentProxy == currentProxyInfo) {
-                        editor.putString("proxy_ip", currentProxyInfo.address);
-                        editor.putString("proxy_pass", currentProxyInfo.password);
-                        editor.putString("proxy_user", currentProxyInfo.username);
-                        editor.putInt("proxy_port", currentProxyInfo.port);
-                        editor.putString("proxy_secret", currentProxyInfo.secret);
-                        ConnectionsManager.setProxySettings(enabled, currentProxyInfo.address, currentProxyInfo.port, currentProxyInfo.username, currentProxyInfo.password, currentProxyInfo.secret);
-                    }
-                    editor.commit();
-
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
-
-                    finishFragment();
+                    String address = inputFields[FIELD_IP].getText().toString();
+                    int port = Utilities.parseInt(inputFields[FIELD_PORT].getText().toString());
+                    String user = inputFields[FIELD_USER].getText().toString();
+                    String password = inputFields[FIELD_PASSWORD].getText().toString();
+                    String secret = inputFields[FIELD_SECRET].getText().toString();
+                    presenter.saveProxy(address, port, user, password, secret, currentType);
                 }
             }
         });
@@ -287,11 +278,12 @@ public class ProxySettingsActivity extends BaseFragment {
         inputFieldsContainer.setOrientation(LinearLayout.VERTICAL);
         inputFieldsContainer.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            // bring to front for transitions
             inputFieldsContainer.setElevation(AndroidUtilities.dp(1f));
             inputFieldsContainer.setOutlineProvider(null);
         }
         linearLayout2.addView(inputFieldsContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+
+        SharedConfig.ProxyInfo currentProxyInfo = presenter.getCurrentProxyInfo();
 
         inputFields = new EditTextBoldCursor[5];
         for (int a = 0; a < 5; a++) {
@@ -318,12 +310,10 @@ public class ProxySettingsActivity extends BaseFragment {
                 inputFields[a].addTextChangedListener(new TextWatcher() {
                     @Override
                     public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
                     }
 
                     @Override
                     public void onTextChanged(CharSequence s, int start, int before, int count) {
-
                     }
 
                     @Override
@@ -336,12 +326,10 @@ public class ProxySettingsActivity extends BaseFragment {
                 inputFields[a].addTextChangedListener(new TextWatcher() {
                     @Override
                     public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
                     }
 
                     @Override
                     public void onTextChanged(CharSequence s, int start, int before, int count) {
-
                     }
 
                     @Override
@@ -361,7 +349,6 @@ public class ProxySettingsActivity extends BaseFragment {
                             }
                         }
                         ignoreOnTextChange = true;
-                        boolean changed;
                         int port = Utilities.parseInt(builder.toString());
                         if (port < 0 || port > 65535 || !str.equals(builder.toString())) {
                             if (port < 0) {
@@ -494,53 +481,21 @@ public class ProxySettingsActivity extends BaseFragment {
         shareCell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4));
         linearLayout2.addView(shareCell, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         shareCell.setOnClickListener(v -> {
-            StringBuilder params = new StringBuilder();
+            if (presenter == null) {
+                return;
+            }
             String address = inputFields[FIELD_IP].getText().toString();
             String password = inputFields[FIELD_PASSWORD].getText().toString();
             String user = inputFields[FIELD_USER].getText().toString();
             String port = inputFields[FIELD_PORT].getText().toString();
             String secret = inputFields[FIELD_SECRET].getText().toString();
-            String url;
-            try {
-                if (!TextUtils.isEmpty(address)) {
-                    params.append("server=").append(URLEncoder.encode(address, "UTF-8"));
-                }
-                if (!TextUtils.isEmpty(port)) {
-                    if (params.length() != 0) {
-                        params.append("&");
-                    }
-                    params.append("port=").append(URLEncoder.encode(port, "UTF-8"));
-                }
-                if (currentType == 1) {
-                    url = "https://t.me/proxy?";
-                    if (params.length() != 0) {
-                        params.append("&");
-                    }
-                    params.append("secret=").append(URLEncoder.encode(secret, "UTF-8"));
-                } else {
-                    url = "https://t.me/socks?";
-                    if (!TextUtils.isEmpty(user)) {
-                        if (params.length() != 0) {
-                            params.append("&");
-                        }
-                        params.append("user=").append(URLEncoder.encode(user, "UTF-8"));
-                    }
-                    if (!TextUtils.isEmpty(password)) {
-                        if (params.length() != 0) {
-                            params.append("&");
-                        }
-                        params.append("pass=").append(URLEncoder.encode(password, "UTF-8"));
-                    }
-                }
-            } catch (Exception ignore) {
-                return;
-            }
-            if (params.length() == 0) {
+            String shareUrl = presenter.generateShareUrl(currentType, address, port, user, password, secret);
+            if (shareUrl == null) {
                 return;
             }
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
             shareIntent.setType("text/plain");
-            shareIntent.putExtra(Intent.EXTRA_TEXT, url + params.toString());
+            shareIntent.putExtra(Intent.EXTRA_TEXT, shareUrl);
             Intent chooserIntent = Intent.createChooser(shareIntent, LocaleController.getString("ShareLink", R.string.ShareLink));
             chooserIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getParentActivity().startActivity(chooserIntent);
@@ -567,6 +522,9 @@ public class ProxySettingsActivity extends BaseFragment {
     }
 
     private void updatePasteCell() {
+        if (presenter == null) {
+            return;
+        }
         final ClipData clip = clipboardManager.getPrimaryClip();
 
         String clipText;
@@ -584,63 +542,14 @@ public class ProxySettingsActivity extends BaseFragment {
             return;
         }
 
-        pasteType = -1;
         pasteString = clipText;
-        pasteFields = new String[inputFields.length];
-        if (clipText != null) {
-            String[] params = null;
-
-            final String[] socksStrings = {"t.me/socks?", "tg://socks?"};
-            for (int i = 0; i < socksStrings.length; i++) {
-                final int index = clipText.indexOf(socksStrings[i]);
-                if (index >= 0) {
-                    pasteType = TYPE_SOCKS5;
-                    params = clipText.substring(index + socksStrings[i].length()).split("&");
-                    break;
-                }
-            }
-
-            if (params == null) {
-                final String[] proxyStrings = {"t.me/proxy?", "tg://proxy?"};
-                for (int i = 0; i < proxyStrings.length; i++) {
-                    final int index = clipText.indexOf(proxyStrings[i]);
-                    if (index >= 0) {
-                        pasteType = TYPE_MTPROTO;
-                        params = clipText.substring(index + proxyStrings[i].length()).split("&");
-                        break;
-                    }
-                }
-            }
-
-            if (params != null) {
-                for (int i = 0; i < params.length; i++) {
-                    final String[] pair = params[i].split("=");
-                    if (pair.length != 2) continue;
-                    switch (pair[0].toLowerCase()) {
-                        case "server":
-                            pasteFields[FIELD_IP] = pair[1];
-                            break;
-                        case "port":
-                            pasteFields[FIELD_PORT] = pair[1];
-                            break;
-                        case "user":
-                            if (pasteType == TYPE_SOCKS5) {
-                                pasteFields[FIELD_USER] = pair[1];
-                            }
-                            break;
-                        case "pass":
-                            if (pasteType == TYPE_SOCKS5) {
-                                pasteFields[FIELD_PASSWORD] = pair[1];
-                            }
-                            break;
-                        case "secret":
-                            if (pasteType == TYPE_MTPROTO) {
-                                pasteFields[FIELD_SECRET] = pair[1];
-                            }
-                            break;
-                    }
-                }
-            }
+        ProxySettingsPresenter.ParsedProxy parsed = presenter.parseClipboardText(clipText);
+        if (parsed != null) {
+            pasteType = parsed.type;
+            pasteFields = parsed.fields;
+        } else {
+            pasteType = -1;
+            pasteFields = new String[inputFields.length];
         }
 
         if (pasteType != -1) {
@@ -685,10 +594,10 @@ public class ProxySettingsActivity extends BaseFragment {
     }
 
     private void checkShareDone(boolean animated) {
-        if (shareCell == null || doneItem == null || inputFields[FIELD_IP] == null || inputFields[FIELD_PORT] == null) {
+        if (shareCell == null || doneItem == null || inputFields[FIELD_IP] == null || inputFields[FIELD_PORT] == null || presenter == null) {
             return;
         }
-        setShareDoneEnabled(inputFields[FIELD_IP].length() != 0 && Utilities.parseInt(inputFields[FIELD_PORT].getText().toString()) != 0, animated);
+        setShareDoneEnabled(presenter.isValid(inputFields[FIELD_IP].getText().toString(), inputFields[FIELD_PORT].getText().toString()), animated);
     }
 
     private void setProxyType(int type, boolean animated) {
@@ -756,7 +665,7 @@ public class ProxySettingsActivity extends BaseFragment {
 
     @Override
     public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
-        if (isOpen && !backward && addingNewProxy) {
+        if (isOpen && !backward && presenter != null && presenter.isAddingNewProxy()) {
             inputFields[FIELD_IP].requestFocus();
             AndroidUtilities.showKeyboard(inputFields[FIELD_IP]);
         }
