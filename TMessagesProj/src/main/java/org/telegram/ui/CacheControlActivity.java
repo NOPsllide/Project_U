@@ -10,12 +10,8 @@ package org.telegram.ui;
 
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.Environment;
-import android.os.StatFs;
-import android.text.TextUtils;
 import android.transition.ChangeBounds;
 import android.transition.Fade;
 import android.transition.TransitionManager;
@@ -33,18 +29,10 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.FilesMigrationService;
-import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.LocaleController;
-import org.telegram.messenger.MediaDataController;
-import org.telegram.messenger.MessagesController;
-import org.telegram.messenger.MessagesStorage;
-import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.messenger.SharedConfig;
-import org.telegram.messenger.Utilities;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -62,12 +50,14 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SlideChooseView;
 import org.telegram.ui.Components.StorageDiagramView;
 import org.telegram.ui.Components.StroageUsageView;
+import org.telegram.core.presenter.CacheControlPresenter;
 import org.telegram.ui.Components.UndoView;
 
-import java.io.File;
 import java.util.ArrayList;
 
-public class CacheControlActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class CacheControlActivity extends BaseFragment implements CacheControlPresenter.CacheControlView {
+
+    private CacheControlPresenter presenter;
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -100,8 +90,6 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
     private StorageDiagramView.ClearViewData[] clearViewData = new StorageDiagramView.ClearViewData[7];
     private boolean calculating = true;
 
-    private volatile boolean canceled = false;
-
     private View bottomSheetView;
     private BottomSheet bottomSheet;
     private View actionTextView;
@@ -115,90 +103,11 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
-        getNotificationCenter().addObserver(this, NotificationCenter.didClearDatabase);
-        databaseSize = MessagesStorage.getInstance(currentAccount).getDatabaseSize();
 
-        Utilities.globalQueue.postRunnable(() -> {
-            cacheSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), 0);
-            if (canceled) {
-                return;
-            }
-            photoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE), 0);
-            photoSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE_PUBLIC), 0);
-            if (canceled) {
-                return;
-            }
-            videoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO), 0);
-            videoSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO_PUBLIC), 0);
-            if (canceled) {
-                return;
-            }
-            documentsSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 1);
-            documentsSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_FILES), 1);
-            if (canceled) {
-                return;
-            }
-            musicSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), 2);
-            musicSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_FILES), 2);
-            if (canceled) {
-                return;
-            }
-            stickersSize = getDirectorySize(new File(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), "acache"), 0);
-            if (canceled) {
-                return;
-            }
-            audioSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_AUDIO), 0);
-            totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize + stickersSize;
-
-            File path;
-            if (Build.VERSION.SDK_INT >= 19) {
-                ArrayList<File> storageDirs = AndroidUtilities.getRootDirs();
-                String dir = (path = storageDirs.get(0)).getAbsolutePath();
-                if (!TextUtils.isEmpty(SharedConfig.storageCacheDir)) {
-                    for (int a = 0, N = storageDirs.size(); a < N; a++) {
-                        File file = storageDirs.get(a);
-                        if (file.getAbsolutePath().startsWith(SharedConfig.storageCacheDir)) {
-                            path = file;
-                            break;
-                        }
-                    }
-                }
-            } else {
-                path = new File(SharedConfig.storageCacheDir);
-            }
-            try {
-                StatFs stat = new StatFs(path.getPath());
-                long blockSize;
-                long blockSizeExternal;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                    blockSize = stat.getBlockSizeLong();
-                } else {
-                    blockSize = stat.getBlockSize();
-                }
-                long availableBlocks;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                    availableBlocks = stat.getAvailableBlocksLong();
-                } else {
-                    availableBlocks = stat.getAvailableBlocks();
-                }
-                long blocksTotal;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                    blocksTotal = stat.getBlockCountLong();
-                } else {
-                    blocksTotal = stat.getBlockCount();
-                }
-
-                totalDeviceSize = blocksTotal * blockSize;
-                totalDeviceFreeSize = availableBlocks * blockSize;
-            } catch (Exception e) {
-                FileLog.e(e);
-            }
-
-            AndroidUtilities.runOnUIThread(() -> {
-                calculating = false;
-                updateStorageUsageRow();
-            });
-        });
+        presenter = new CacheControlPresenter(currentAccount);
+        presenter.attachView(this);
+        databaseSize = presenter.getDatabaseSize();
+        presenter.calculateCacheSize();
 
         fragmentCreateTime = System.currentTimeMillis();
         updateRows();
@@ -252,182 +161,31 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        getNotificationCenter().removeObserver(this, NotificationCenter.didClearDatabase);
+        if (presenter != null) {
+            presenter.detachView();
+        }
         try {
             if (progressDialog != null) {
                 progressDialog.dismiss();
             }
-
         } catch (Exception e) {
 
         }
         progressDialog = null;
-        canceled = true;
-    }
-
-    private long getDirectorySize(File dir, int documentsMusicType) {
-        if (dir == null || canceled) {
-            return 0;
-        }
-        long size = 0;
-        if (dir.isDirectory()) {
-            size = Utilities.getDirSize(dir.getAbsolutePath(), documentsMusicType, false);
-        } else if (dir.isFile()) {
-            size += dir.length();
-        }
-        return size;
     }
 
     private void cleanupFolders() {
-        final AlertDialog progressDialog = new AlertDialog(getParentActivity(), 3);
+        progressDialog = new AlertDialog(getParentActivity(), 3);
         progressDialog.setCanCancel(false);
         progressDialog.showDelayed(500);
-        Utilities.globalQueue.postRunnable(() -> {
-            boolean imagesCleared = false;
-            long clearedSize = 0;
-            boolean allItemsClear = true;
-            for (int a = 0; a < 7; a++) {
-                if (clearViewData[a] == null || !clearViewData[a].clear) {
-                    if (clearViewData[a] != null) {
-                        allItemsClear = false;
-                    }
-                    continue;
-                }
-                int type = -1;
-                int documentsMusicType = 0;
-                if (a == 0) {
-                    type = FileLoader.MEDIA_DIR_IMAGE;
-                    clearedSize += photoSize;
-                } else if (a == 1) {
-                    type = FileLoader.MEDIA_DIR_VIDEO;
-                    clearedSize += videoSize;
-                } else if (a == 2) {
-                    type = FileLoader.MEDIA_DIR_DOCUMENT;
-                    documentsMusicType = 1;
-                    clearedSize += documentsSize;
-                } else if (a == 3) {
-                    type = FileLoader.MEDIA_DIR_DOCUMENT;
-                    documentsMusicType = 2;
-                    clearedSize += musicSize;
-                } else if (a == 4) {
-                    type = FileLoader.MEDIA_DIR_AUDIO;
-                    clearedSize += audioSize;
-                } else if (a == 5) {
-                    type = 100;
-                    clearedSize += stickersSize;
-                } else if (a == 6) {
-                    clearedSize += cacheSize;
-                    type = FileLoader.MEDIA_DIR_CACHE;
-                }
-                if (type == -1) {
-                    continue;
-                }
-                File file;
-                if (type == 100) {
-                    file = new File(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), "acache");
-                } else {
-                    file = FileLoader.checkDirectory(type);
-                }
-                if (file != null) {
-                    Utilities.clearDir(file.getAbsolutePath(), documentsMusicType, Long.MAX_VALUE, false);
-                }
-                if (type == FileLoader.MEDIA_DIR_IMAGE || type == FileLoader.MEDIA_DIR_VIDEO) {
-                    int publicDirectoryType;
-                    if (type == FileLoader.MEDIA_DIR_IMAGE) {
-                        publicDirectoryType = FileLoader.MEDIA_DIR_IMAGE_PUBLIC;
-                    } else {
-                        publicDirectoryType = FileLoader.MEDIA_DIR_VIDEO_PUBLIC;
-                    }
-                    file = FileLoader.checkDirectory(publicDirectoryType);
 
-                    if (file != null) {
-                        Utilities.clearDir(file.getAbsolutePath(), documentsMusicType, Long.MAX_VALUE, false);
-                    }
-                }
-                if (type == FileLoader.MEDIA_DIR_DOCUMENT) {
-                    file = FileLoader.checkDirectory(FileLoader.MEDIA_DIR_FILES);
-                    if (file != null) {
-                        Utilities.clearDir(file.getAbsolutePath(), documentsMusicType, Long.MAX_VALUE, false);
-                    }
-                }
+        boolean[] clearTypes = new boolean[7];
+        long[] currentSizes = new long[]{photoSize, videoSize, documentsSize, musicSize, audioSize, stickersSize, cacheSize};
+        for (int a = 0; a < 7; a++) {
+            clearTypes[a] = clearViewData[a] != null && clearViewData[a].clear;
+        }
 
-                if (type == FileLoader.MEDIA_DIR_CACHE) {
-                    cacheSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), documentsMusicType);
-                    imagesCleared = true;
-                } else if (type == FileLoader.MEDIA_DIR_AUDIO) {
-                    audioSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_AUDIO), documentsMusicType);
-                } else if (type == FileLoader.MEDIA_DIR_DOCUMENT) {
-                    if (documentsMusicType == 1) {
-                        documentsSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
-                        documentsSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_FILES), documentsMusicType);
-                    } else {
-                        musicSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_DOCUMENT), documentsMusicType);
-                        musicSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_FILES), documentsMusicType);
-                    }
-                } else if (type == FileLoader.MEDIA_DIR_IMAGE) {
-                    imagesCleared = true;
-                    photoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE), documentsMusicType);
-                    photoSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_IMAGE_PUBLIC), documentsMusicType);
-                } else if (type == FileLoader.MEDIA_DIR_VIDEO) {
-                    videoSize = getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO), documentsMusicType);
-                    videoSize += getDirectorySize(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_VIDEO_PUBLIC), documentsMusicType);
-                } else if (type == 100) {
-                    imagesCleared = true;
-                    stickersSize = getDirectorySize(new File(FileLoader.checkDirectory(FileLoader.MEDIA_DIR_CACHE), "acache"), documentsMusicType);
-                }
-            }
-            final boolean imagesClearedFinal = imagesCleared;
-            totalSize = cacheSize + videoSize + audioSize + photoSize + documentsSize + musicSize + stickersSize;
-
-            File path = Environment.getDataDirectory();
-            StatFs stat = new StatFs(path.getPath());
-            long blockSize;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                blockSize = stat.getBlockSizeLong();
-            } else {
-                blockSize = stat.getBlockSize();
-            }
-            long availableBlocks;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                availableBlocks = stat.getAvailableBlocksLong();
-            } else {
-                availableBlocks = stat.getAvailableBlocks();
-            }
-            long blocksTotal;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                blocksTotal = stat.getBlockCountLong();
-            } else {
-                blocksTotal = stat.getBlockCount();
-            }
-
-            totalDeviceSize = blocksTotal * blockSize;
-            totalDeviceFreeSize = availableBlocks * blockSize;
-            long finalClearedSize = clearedSize;
-
-            if (allItemsClear) {
-                FileLoader.getInstance(currentAccount).clearFilePaths();
-            }
-            FileLoader.getInstance(currentAccount).checkCurrentDownloadsFiles();
-
-            AndroidUtilities.runOnUIThread(() -> {
-                if (imagesClearedFinal) {
-                    ImageLoader.getInstance().clearMemory();
-                }
-                if (listAdapter != null) {
-                    updateStorageUsageRow();
-                }
-                try {
-                    progressDialog.dismiss();
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-
-                getMediaDataController().ringtoneDataStore.checkRingtoneSoundsLoaded();
-                cacheRemovedTooltip.setInfoText(LocaleController.formatString("CacheWasCleared", R.string.CacheWasCleared, AndroidUtilities.formatFileSize(finalClearedSize)));
-                cacheRemovedTooltip.showWithAction(0, UndoView.ACTION_CACHE_WAS_CLEARED, null, null);
-                MediaDataController.getInstance(currentAccount).chekAllMedia(true);
-            });
-        });
+        presenter.cleanupFolders(clearTypes, currentSizes);
     }
 
     @Override
@@ -600,8 +358,7 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
             progressDialog = new AlertDialog(getParentActivity(), 3);
             progressDialog.setCanCancel(false);
             progressDialog.showDelayed(500);
-            MessagesController.getInstance(currentAccount).clearQueryTime();
-            getMessagesStorage().clearLocalDatabase();
+            presenter.clearLocalDatabase();
         });
         AlertDialog alertDialog = builder.create();
         showDialog(alertDialog);
@@ -620,21 +377,64 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
     }
 
     @Override
-    public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.didClearDatabase) {
-            try {
-                if (progressDialog != null) {
-                    progressDialog.dismiss();
-                }
-            } catch (Exception e) {
-                FileLog.e(e);
+    public void onCacheCalculated(long cacheSize, long photoSize, long videoSize, long documentsSize, long musicSize, long stickersSize, long audioSize, long totalSize, long totalDeviceSize, long totalDeviceFreeSize) {
+        this.cacheSize = cacheSize;
+        this.photoSize = photoSize;
+        this.videoSize = videoSize;
+        this.documentsSize = documentsSize;
+        this.musicSize = musicSize;
+        this.stickersSize = stickersSize;
+        this.audioSize = audioSize;
+        this.totalSize = totalSize;
+        this.totalDeviceSize = totalDeviceSize;
+        this.totalDeviceFreeSize = totalDeviceFreeSize;
+        calculating = false;
+        updateStorageUsageRow();
+    }
+
+    @Override
+    public void onCacheCleaned(long clearedSize, long cacheSize, long photoSize, long videoSize, long documentsSize, long musicSize, long stickersSize, long audioSize, long totalSize, long totalDeviceSize, long totalDeviceFreeSize, boolean imagesCleared) {
+        this.cacheSize = cacheSize;
+        this.photoSize = photoSize;
+        this.videoSize = videoSize;
+        this.documentsSize = documentsSize;
+        this.musicSize = musicSize;
+        this.stickersSize = stickersSize;
+        this.audioSize = audioSize;
+        this.totalSize = totalSize;
+        this.totalDeviceSize = totalDeviceSize;
+        this.totalDeviceFreeSize = totalDeviceFreeSize;
+
+        if (listAdapter != null) {
+            updateStorageUsageRow();
+        }
+        try {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
             }
-            progressDialog = null;
-            if (listAdapter != null) {
-                databaseSize = MessagesStorage.getInstance(currentAccount).getDatabaseSize();
-                updateDatabaseSize = true;
-                listAdapter.notifyDataSetChanged();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        progressDialog = null;
+
+        cacheRemovedTooltip.setInfoText(LocaleController.formatString("CacheWasCleared", R.string.CacheWasCleared, AndroidUtilities.formatFileSize(clearedSize)));
+        cacheRemovedTooltip.showWithAction(0, UndoView.ACTION_CACHE_WAS_CLEARED, null, null);
+    }
+
+    @Override
+    public void onDatabaseCleared(long newDatabaseSize) {
+        try {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
             }
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+        progressDialog = null;
+        databaseSize = newDatabaseSize;
+        updateDatabaseSize = true;
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
         }
     }
 
@@ -677,19 +477,18 @@ public class CacheControlActivity extends BaseFragment implements NotificationCe
                     SlideChooseView slideChooseView = new SlideChooseView(mContext);
                     view = slideChooseView;
                     view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-                    SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                     slideChooseView.setCallback(index -> {
                         if (index == 0) {
-                            SharedConfig.setKeepMedia(3);
+                            presenter.setKeepMedia(3);
                         } else if (index == 1) {
-                            SharedConfig.setKeepMedia(0);
+                            presenter.setKeepMedia(0);
                         } else if (index == 2) {
-                            SharedConfig.setKeepMedia(1);
+                            presenter.setKeepMedia(1);
                         } else if (index == 3) {
-                            SharedConfig.setKeepMedia(2);
+                            presenter.setKeepMedia(2);
                         }
                     });
-                    int keepMedia = SharedConfig.keepMedia;
+                    int keepMedia = presenter.getKeepMedia();
                     int index;
                     if (keepMedia == 3) {
                         index = 0;
