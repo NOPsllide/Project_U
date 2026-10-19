@@ -5,6 +5,8 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocationController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.RequestDelegate;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
@@ -98,5 +100,90 @@ public class LocationRepositoryImpl implements LocationRepository {
         if (reqId != 0) {
             ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true);
         }
+    }
+
+    @Override
+    public LocationController.SharingLocationInfo getSharingLocationInfo(long dialogId) {
+        return LocationController.getInstance(currentAccount).getSharingLocationInfo(dialogId);
+    }
+
+    @Override
+    public boolean isSharingLocation(long dialogId) {
+        return LocationController.getInstance(currentAccount).isSharingLocation(dialogId);
+    }
+
+    @Override
+    public void removeSharingLocation(long dialogId) {
+        LocationController.getInstance(currentAccount).removeSharingLocation(dialogId);
+    }
+
+    @Override
+    public void setProximityLocation(long dialogId, int radius, boolean notify) {
+        LocationController.getInstance(currentAccount).setProximityLocation(dialogId, radius, notify);
+    }
+
+    @Override
+    public void setMapLocation(Location location, boolean isFirstLocation) {
+        LocationController.getInstance(currentAccount).setMapLocation(location, isFirstLocation);
+    }
+
+    @Override
+    public ArrayList<TLRPC.Message> getLocationsCache(long dialogId) {
+        return LocationController.getInstance(currentAccount).locationsCache.get(dialogId);
+    }
+
+    @Override
+    public void putLocationsCache(long dialogId, ArrayList<TLRPC.Message> messages) {
+        LocationController.getInstance(currentAccount).locationsCache.put(dialogId, messages);
+    }
+
+    @Override
+    public void markLiveLocationsAsRead(long dialogId) {
+        LocationController.getInstance(currentAccount).markLiveLoactionsAsRead(dialogId);
+    }
+
+    @Override
+    public TLRPC.User getUser(long userId) {
+        return MessagesController.getInstance(currentAccount).getUser(userId);
+    }
+
+    @Override
+    public TLRPC.Chat getChat(long chatId) {
+        return MessagesController.getInstance(currentAccount).getChat(chatId);
+    }
+
+    @Override
+    public void putUsers(ArrayList<TLRPC.User> users, boolean fromCache) {
+        MessagesController.getInstance(currentAccount).putUsers(users, fromCache);
+    }
+
+    @Override
+    public void putChats(ArrayList<TLRPC.Chat> chats, boolean fromCache) {
+        MessagesController.getInstance(currentAccount).putChats(chats, fromCache);
+    }
+
+    @Override
+    public TLRPC.InputChannel getInputChannel(long chatId) {
+        return MessagesController.getInstance(currentAccount).getInputChannel(chatId);
+    }
+
+    @Override
+    public TLRPC.InputPeer getInputPeer(long peerId) {
+        return MessagesController.getInstance(currentAccount).getInputPeer(peerId);
+    }
+
+    @Override
+    public int getCurrentTime() {
+        return ConnectionsManager.getInstance(currentAccount).getCurrentTime();
+    }
+
+    @Override
+    public int sendRequest(TLObject req, RequestDelegate callback) {
+        return ConnectionsManager.getInstance(currentAccount).sendRequest(req, callback);
+    }
+
+    @Override
+    public void bindRequestToGuid(int reqId, int classGuid) {
+        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
     }
 }

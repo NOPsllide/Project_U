@@ -107,14 +107,17 @@ import org.telegram.ui.Components.UndoView;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import org.telegram.core.presenter.LocationPresenter;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 
-public class LocationActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class LocationActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, LocationPresenter.LocationView {
 
+    private LocationPresenter presenter;
     private ImageView locationButton;
     private ImageView proximityButton;
     private ActionBarMenuItem mapTypeButton;
@@ -421,6 +424,10 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        if (presenter == null) {
+            presenter = new LocationPresenter(currentAccount);
+        }
+        presenter.attachView(this);
         getNotificationCenter().addObserver(this, NotificationCenter.closeChats);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.locationPermissionGranted);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.locationPermissionDenied);
@@ -435,6 +442,9 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.locationPermissionGranted);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.locationPermissionDenied);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.liveLocationsChanged);
@@ -557,7 +567,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                 }
                 otherItem = menu.addItem(0, R.drawable.ic_ab_other);
                 otherItem.addSubItem(open_in, R.drawable.msg_openin, LocaleController.getString("OpenInExternalApp", R.string.OpenInExternalApp));
-                if (!getLocationController().isSharingLocation(dialogId)) {
+                if (!presenter.isSharingLocation(dialogId)) {
                     otherItem.addSubItem(share_live_location, R.drawable.msg_location, LocaleController.getString("SendLiveLocationMenu", R.string.SendLiveLocationMenu));
                 }
                 otherItem.setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
@@ -862,7 +872,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             }
             SharedPreferences preferences = MessagesController.getGlobalMainSettings();
             preferences.edit().putInt("proximityhint", 3).commit();
-            LocationController.SharingLocationInfo info = getLocationController().getSharingLocationInfo(dialogId);
+            LocationController.SharingLocationInfo info = presenter.getSharingLocationInfo(dialogId);
             if (canUndo) {
                 undoView[0].hide(true, 1);
             }
@@ -875,7 +885,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                 canUndo = true;
                 getUndoView().showWithAction(0, UndoView.ACTION_PROXIMITY_REMOVED, 0, null,
                         () -> {
-                            getLocationController().setProximityLocation(dialogId, 0, true);
+                            presenter.setProximityLocation(dialogId, 0, true);
                             canUndo = false;
                         }, () -> {
                             proximityButton.setImageResource(R.drawable.msg_location_alert2);
@@ -888,9 +898,9 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         });
         TLRPC.Chat chat = null;
         if (DialogObject.isChatDialog(dialogId)) {
-            chat = getMessagesController().getChat(-dialogId);
+            chat = presenter.getChat(-dialogId);
         }
-        if (messageObject == null || !messageObject.isLiveLocation() || messageObject.isExpiredLiveLocation(getConnectionsManager().getCurrentTime()) || ChatObject.isChannel(chat) && !chat.megagroup) {
+        if (messageObject == null || !messageObject.isLiveLocation() || messageObject.isExpiredLiveLocation(presenter.getCurrentTime()) || ChatObject.isChannel(chat) && !chat.megagroup) {
             proximityButton.setVisibility(View.GONE);
             proximityButton.setImageResource(R.drawable.msg_location_alert);
         } else {
@@ -1007,11 +1017,11 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                         final AlertDialog[] progressDialog = new AlertDialog[]{new AlertDialog(getParentActivity(), 3)};
                         TLRPC.TL_channels_editLocation req = new TLRPC.TL_channels_editLocation();
                         req.address = venue.address;
-                        req.channel = getMessagesController().getInputChannel(-dialogId);
+                        req.channel = presenter.getInputChannel(-dialogId);
                         req.geo_point = new TLRPC.TL_inputGeoPoint();
                         req.geo_point.lat = venue.geo.lat;
                         req.geo_point._long = venue.geo._long;
-                        int requestId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                        int requestId = presenter.sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                             try {
                                 progressDialog[0].dismiss();
                             } catch (Throwable ignore) {
@@ -1021,7 +1031,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                             delegate.didSelectLocation(venue, LOCATION_TYPE_GROUP, true, 0);
                             finishFragment();
                         }));
-                        progressDialog[0].setOnCancelListener(dialog -> getConnectionsManager().cancelRequest(requestId, true));
+                        progressDialog[0].setOnCancelListener(dialog -> presenter.cancelRequest(requestId));
                         showDialog(progressDialog[0]);
                     }
                 }
@@ -1054,8 +1064,8 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                     }
                 }
             } else if (position == 2 && locationType == 1 || position == 1 && locationType == 2 || position == 3 && locationType == 3) {
-                if (getLocationController().isSharingLocation(dialogId)) {
-                    getLocationController().removeSharingLocation(dialogId);
+                if (presenter.isSharingLocation(dialogId)) {
+                    presenter.removeSharingLocation(dialogId);
                     finishFragment();
                 } else {
                     openShareLiveLocation(0);
@@ -1145,7 +1155,6 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             try {
                 map.onCreate(null);
             } catch (Exception e) {
-                //this will cause exception, but will preload google maps?
             }
             AndroidUtilities.runOnUIThread(() -> {
                 if (mapView != null && getParentActivity() != null) {
@@ -1383,7 +1392,6 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             try {
                 canvas.setBitmap(null);
             } catch (Exception e) {
-                //don't promt, this will crash on 2.x
             }
         } catch (Throwable e) {
             FileLog.e(e);
@@ -1408,7 +1416,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
 
         TLRPC.User user;
         if (DialogObject.isUserDialog(dialogId)) {
-            user = getMessagesController().getUser(dialogId);
+            user = presenter.getUser(dialogId);
         } else {
             user = null;
         }
@@ -1437,7 +1445,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             }
             return false;
         }, (move, radius) -> {
-            LocationController.SharingLocationInfo info = getLocationController().getSharingLocationInfo(dialogId);
+            LocationController.SharingLocationInfo info = presenter.getSharingLocationInfo(dialogId);
             if (info == null) {
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
                 builder.setTitle(LocaleController.getString("ShareLocationAlertTitle", R.string.ShareLocationAlertTitle));
@@ -1450,7 +1458,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             proximitySheet.setRadiusSet();
             proximityButton.setImageResource(R.drawable.msg_location_alert2);
             getUndoView().showWithAction(0, UndoView.ACTION_PROXIMITY_SET, radius, user, null, null);
-            getLocationController().setProximityLocation(dialogId, radius, true);
+            presenter.setProximityLocation(dialogId, radius, true);
             return true;
         }, () -> {
             if (map != null) {
@@ -1484,14 +1492,14 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                 int lastTime = preferences.getInt("backgroundloc", 0);
                 if (Math.abs(System.currentTimeMillis() / 1000 - lastTime) > 24 * 60 * 60 && activity.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                     preferences.edit().putInt("backgroundloc", (int) (System.currentTimeMillis() / 1000)).commit();
-                    AlertsCreator.createBackgroundLocationPermissionDialog(activity, getMessagesController().getUser(getUserConfig().getClientUserId()), () -> openShareLiveLocation(askWithRadius), null).show();
+                    AlertsCreator.createBackgroundLocationPermissionDialog(activity, presenter.getUser(getUserConfig().getClientUserId()), () -> openShareLiveLocation(askWithRadius), null).show();
                     return;
                 }
             }
         }
         TLRPC.User user;
         if (DialogObject.isUserDialog(dialogId)) {
-            user = getMessagesController().getUser(dialogId);
+            user = presenter.getUser(dialogId);
         } else {
             user = null;
         }
@@ -1577,14 +1585,14 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
             liveLocation = new LiveLocation();
             liveLocation.object = message;
             if (liveLocation.object.from_id instanceof TLRPC.TL_peerUser) {
-                liveLocation.user = getMessagesController().getUser(liveLocation.object.from_id.user_id);
+                liveLocation.user = presenter.getUser(liveLocation.object.from_id.user_id);
                 liveLocation.id = liveLocation.object.from_id.user_id;
             } else {
                 long did = MessageObject.getDialogId(message);
                 if (DialogObject.isUserDialog(did)) {
-                    liveLocation.user = getMessagesController().getUser(did);
+                    liveLocation.user = presenter.getUser(did);
                 } else {
-                    liveLocation.chat = getMessagesController().getChat(-did);
+                    liveLocation.chat = presenter.getChat(-did);
                 }
                 liveLocation.id = did;
             }
@@ -1615,7 +1623,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
 
                     markers.add(liveLocation);
                     markersMap.put(liveLocation.id, liveLocation);
-                    LocationController.SharingLocationInfo myInfo = getLocationController().getSharingLocationInfo(dialogId);
+                    LocationController.SharingLocationInfo myInfo = presenter.getSharingLocationInfo(dialogId);
                     if (liveLocation.id == getUserConfig().getClientUserId() && myInfo != null && liveLocation.object.id == myInfo.mid && myLocation != null) {
                         IMapsProvider.LatLng latLng1 = new IMapsProvider.LatLng(myLocation.getLatitude(), myLocation.getLongitude());
                         liveLocation.marker.setPosition(latLng1);
@@ -1638,9 +1646,9 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         IMapsProvider.LatLng latLng = new IMapsProvider.LatLng(location.geo_point.lat, location.geo_point._long);
         LiveLocation liveLocation = new LiveLocation();
         if (DialogObject.isUserDialog(dialogId)) {
-            liveLocation.user = getMessagesController().getUser(dialogId);
+            liveLocation.user = presenter.getUser(dialogId);
         } else {
-            liveLocation.chat = getMessagesController().getChat(-dialogId);
+            liveLocation.chat = presenter.getChat(-dialogId);
         }
         liveLocation.id = dialogId;
 
@@ -1741,7 +1749,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         });
         map.setOnMyLocationChangeListener(location -> {
             positionMarker(location);
-            getLocationController().setMapLocation(location, isFirstLocation);
+            presenter.setMapLocation(location, isFirstLocation);
             isFirstLocation = false;
         });
         map.setOnMarkerClickListener(marker -> {
@@ -1770,7 +1778,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         }
 
         if (proximityButton != null && proximityButton.getVisibility() == View.VISIBLE) {
-            LocationController.SharingLocationInfo myInfo = getLocationController().getSharingLocationInfo(dialogId);
+            LocationController.SharingLocationInfo myInfo = presenter.getSharingLocationInfo(dialogId);
             if (myInfo != null && myInfo.proximityMeters > 0) {
                 createCircle(myInfo.proximityMeters);
             }
@@ -1906,7 +1914,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         if (val < 3) {
             preferences.edit().putInt("proximityhint", ++val).commit();
             if (DialogObject.isUserDialog(dialogId)) {
-                TLRPC.User user = getMessagesController().getUser(dialogId);
+                TLRPC.User user = presenter.getUser(dialogId);
                 hintView.setOverrideText(LocaleController.formatString("ProximityTooltioUser", R.string.ProximityTooltioUser, UserObject.getFirstName(user)));
             } else {
                 hintView.setOverrideText(LocaleController.getString("ProximityTooltioGroup", R.string.ProximityTooltioGroup));
@@ -2085,7 +2093,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         }
         myLocation = new Location(location);
         LiveLocation liveLocation = markersMap.get(getUserConfig().getClientUserId());
-        LocationController.SharingLocationInfo myInfo = getLocationController().getSharingLocationInfo(dialogId);
+        LocationController.SharingLocationInfo myInfo = presenter.getSharingLocationInfo(dialogId);
         if (liveLocation != null && myInfo != null && liveLocation.object.id == myInfo.mid) {
             IMapsProvider.LatLng latLng = new IMapsProvider.LatLng(location.getLatitude(), location.getLongitude());
             liveLocation.marker.setPosition(latLng);
@@ -2167,7 +2175,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
         if (firstFocus) {
             builder = ApplicationLoader.getMapsProvider().onCreateLatLngBoundsBuilder();
         }
-        int date = getConnectionsManager().getCurrentTime();
+        int date = presenter.getCurrentTime();
         for (int a = 0; a < messages.size(); a++) {
             TLRPC.Message message = messages.get(a);
             if (message.date + message.media.period > date) {
@@ -2248,7 +2256,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
 
             }
         } else {
-            int date = getConnectionsManager().getCurrentTime();
+            int date = presenter.getCurrentTime();
             for (int a = 0, N = markers.size(); a < N; a++) {
                 TLRPC.Message message = markers.get(a).object;
                 if (message.date + message.media.period > date) {
@@ -2278,23 +2286,23 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
     }
 
     private boolean getRecentLocations() {
-        ArrayList<TLRPC.Message> messages = getLocationController().locationsCache.get(messageObject.getDialogId());
+        ArrayList<TLRPC.Message> messages = presenter.getLocationsCache(messageObject.getDialogId());
         if (messages != null && messages.isEmpty()) {
             fetchRecentLocations(messages);
         } else {
             messages = null;
         }
         if (DialogObject.isChatDialog(dialogId)) {
-            TLRPC.Chat chat = getMessagesController().getChat(-dialogId);
+            TLRPC.Chat chat = presenter.getChat(-dialogId);
             if (ChatObject.isChannel(chat) && !chat.megagroup) {
                 return false;
             }
         }
         TLRPC.TL_messages_getRecentLocations req = new TLRPC.TL_messages_getRecentLocations();
         final long dialog_id = messageObject.getDialogId();
-        req.peer = getMessagesController().getInputPeer(dialog_id);
+        req.peer = presenter.getInputPeer(dialog_id);
         req.limit = 100;
-        getConnectionsManager().sendRequest(req, (response, error) -> {
+        presenter.sendRequest(req, (response, error) -> {
             if (response != null) {
                 AndroidUtilities.runOnUIThread(() -> {
                     if (map == null) {
@@ -2308,15 +2316,15 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                         }
                     }
                     getMessagesStorage().putUsersAndChats(res.users, res.chats, true, true);
-                    getMessagesController().putUsers(res.users, false);
-                    getMessagesController().putChats(res.chats, false);
-                    getLocationController().locationsCache.put(dialog_id, res.messages);
+                    presenter.putUsers(res.users, false);
+                    presenter.putChats(res.chats, false);
+                    presenter.putLocationsCache(dialog_id, res.messages);
                     getNotificationCenter().postNotificationName(NotificationCenter.liveLocationsCacheChanged, dialog_id);
                     fetchRecentLocations(res.messages);
-                    getLocationController().markLiveLoactionsAsRead(dialogId);
+                    presenter.markLiveLocationsAsRead(dialogId);
                     if (markAsReadRunnable == null) {
                         markAsReadRunnable = () -> {
-                            getLocationController().markLiveLoactionsAsRead(dialogId);
+                            presenter.markLiveLocationsAsRead(dialogId);
                             if (isPaused || markAsReadRunnable == null) {
                                 return;
                             }
@@ -2417,7 +2425,7 @@ public class LocationActivity extends BaseFragment implements NotificationCenter
                 }
                 LiveLocation liveLocation = markersMap.get(getMessageId(messageObject.messageOwner));
                 if (liveLocation != null) {
-                    LocationController.SharingLocationInfo myInfo = getLocationController().getSharingLocationInfo(did);
+                    LocationController.SharingLocationInfo myInfo = presenter.getSharingLocationInfo(did);
                     if (myInfo == null || myInfo.mid != messageObject.getId()) {
                         liveLocation.object = messageObject.messageOwner;
                         IMapsProvider.LatLng latLng = new IMapsProvider.LatLng(messageObject.messageOwner.media.geo.lat, messageObject.messageOwner.media.geo._long);
