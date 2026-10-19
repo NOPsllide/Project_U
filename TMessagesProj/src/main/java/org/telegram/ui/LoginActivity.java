@@ -167,7 +167,9 @@ import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicReference;
 
 @SuppressLint("HardwareIds")
-public class LoginActivity extends BaseFragment {
+public class LoginActivity extends BaseFragment implements org.telegram.core.presenter.LoginPresenter.LoginView {
+
+    private org.telegram.core.presenter.LoginPresenter presenter;
     private final static int SHOW_DELAY = SharedConfig.getDevicePerformanceClass() <= SharedConfig.PERFORMANCE_CLASS_AVERAGE ? 150 : 100;
 
     public final static int AUTH_TYPE_MESSAGE = 1,
@@ -290,7 +292,6 @@ public class LoginActivity extends BaseFragment {
     private ImageView backButtonView;
     private RadialProgressView radialProgressView;
 
-    // Open animation stuff
     private LinearLayout keyboardLinearLayout;
     private FrameLayout slideViewsContainer;
     private View introView;
@@ -418,8 +419,18 @@ public class LoginActivity extends BaseFragment {
     }
 
     @Override
+    public boolean onFragmentCreate() {
+        presenter = new org.telegram.core.presenter.LoginPresenter(currentAccount);
+        presenter.attachView(this);
+        return super.onFragmentCreate();
+    }
+
+    @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         for (int a = 0; a < views.length; a++) {
             if (views[a] != null) {
                 views[a].onDestroyActivity();
@@ -1016,7 +1027,7 @@ public class LoginActivity extends BaseFragment {
                 }
 
                 OutlineTextContainerView outlineTextContainerView = (OutlineTextContainerView) view;
-                AtomicReference<Runnable> timeoutCallbackRef = new AtomicReference<>(); // We can't use timeoutCallback before declaration otherwise
+                AtomicReference<Runnable> timeoutCallbackRef = new AtomicReference<>();
                 EditText editText = outlineTextContainerView.getAttachedEditText();
                 TextWatcher textWatcher = new TextWatcher() {
                     @Override
@@ -1428,7 +1439,6 @@ public class LoginActivity extends BaseFragment {
             }
             currentDoneType = DONE_TYPE_ACTION;
             showDoneButton(false, animated);
-            // Force reset radial progress
             showEditDoneProgress(false, animated);
             currentDoneType = DONE_TYPE_FLOATING;
             showEditDoneProgress(false, animated);
@@ -1765,7 +1775,6 @@ public class LoginActivity extends BaseFragment {
             codeField.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             codeField.setImeOptions(EditorInfo.IME_ACTION_NEXT | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
             codeField.setBackground(null);
-//            codeField.setLineColors(getThemedColor(Theme.key_windowBackgroundWhiteInputField), getThemedColor(Theme.key_windowBackgroundWhiteInputFieldActivated), getThemedColor(Theme.key_windowBackgroundWhiteRedText3));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 codeField.setShowSoftInputOnFocus(!(hasCustomKeyboard() && !isCustomKeyboardForceDisabled()));
             }
@@ -1918,7 +1927,6 @@ public class LoginActivity extends BaseFragment {
             phoneField.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             phoneField.setImeOptions(EditorInfo.IME_ACTION_NEXT | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
             phoneField.setBackground(null);
-//            phoneField.setLineColors(getThemedColor(Theme.key_windowBackgroundWhiteInputField), getThemedColor(Theme.key_windowBackgroundWhiteInputFieldActivated), getThemedColor(Theme.key_windowBackgroundWhiteRedText3));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 phoneField.setShowSoftInputOnFocus(!(hasCustomKeyboard() && !isCustomKeyboardForceDisabled()));
             }
@@ -2081,7 +2089,7 @@ public class LoginActivity extends BaseFragment {
             try {
                 TelephonyManager telephonyManager = (TelephonyManager) ApplicationLoader.applicationContext.getSystemService(Context.TELEPHONY_SERVICE);
                 if (telephonyManager != null) {
-                    country = null;//telephonyManager.getSimCountryIso().toUpperCase();
+                    country = null;
                 }
             } catch (Exception e) {
                 FileLog.e(e);
@@ -2815,7 +2823,7 @@ public class LoginActivity extends BaseFragment {
     }
 
     public class LoginActivitySmsView extends SlideView implements NotificationCenter.NotificationCenterDelegate {
-        /* package */ RLottieDrawable hintDrawable;
+        RLottieDrawable hintDrawable;
 
         private String phone;
         private String phoneHash;
@@ -7207,7 +7215,6 @@ public class LoginActivity extends BaseFragment {
                 public void onAnimationStart(Animator animation) {
                     fabContainer.setVisibility(GONE);
 
-                    // TODO: Generify this code, currently it's a clone
                     float scaleFactor = 10;
                     int w = (int) (fragmentView.getMeasuredWidth() / scaleFactor);
                     int h = (int) (fragmentView.getMeasuredHeight() / scaleFactor);
