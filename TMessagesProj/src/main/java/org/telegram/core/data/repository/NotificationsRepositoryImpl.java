@@ -8,10 +8,12 @@ import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.NotificationsController;
+import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.ConnectionsManager;
@@ -509,5 +511,69 @@ public class NotificationsRepositoryImpl implements NotificationsRepository {
             NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
             NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(exception.did, topicId, false);
         }
+    }
+
+    @Override
+    public ArrayList<MessageObject> getPopupMessages(boolean isReply, int forceAccount) {
+        ArrayList<MessageObject> result = new ArrayList<>();
+        if (isReply) {
+            int account = forceAccount;
+            if (!UserConfig.isValidAccount(account)) {
+                return result;
+            }
+            result.addAll(NotificationsController.getInstance(account).popupReplyMessages);
+        } else {
+            for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                if (UserConfig.getInstance(a).isClientActivated()) {
+                    result.addAll(NotificationsController.getInstance(a).popupMessages);
+                }
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public void markDialogAsRead(int account, long dialogId, int id, int date) {
+        MessagesController.getInstance(account).markDialogAsRead(dialogId, id, Math.max(0, id), date, true, 0, 0, true, 0);
+    }
+
+    @Override
+    public void sendTyping(int account, long dialogId, int classGuid) {
+        MessagesController.getInstance(account).sendTyping(dialogId, 0, 0, classGuid);
+    }
+
+    @Override
+    public void sendNotificationCallback(int account, long dialogId, int messageId, byte[] data) {
+        SendMessagesHelper.getInstance(account).sendNotificationCallback(dialogId, messageId, data);
+    }
+
+    @Override
+    public TLRPC.User getUser(int account, long userId) {
+        return MessagesController.getInstance(account).getUser(userId);
+    }
+
+    @Override
+    public TLRPC.Chat getChat(int account, long chatId) {
+        return MessagesController.getInstance(account).getChat(chatId);
+    }
+
+    @Override
+    public TLRPC.EncryptedChat getEncryptedChat(int account, int chatId) {
+        return MessagesController.getInstance(account).getEncryptedChat(chatId);
+    }
+
+    @Override
+    public CharSequence getPrintingString(int account, long dialogId) {
+        return MessagesController.getInstance(account).getPrintingString(dialogId, 0, false);
+    }
+
+    @Override
+    public Integer getPrintingStringType(int account, long dialogId) {
+        return MessagesController.getInstance(account).getPrintingStringType(dialogId, 0);
+    }
+
+    @Override
+    public void setAppPaused(int account, boolean paused) {
+        ConnectionsManager.getInstance(account).setAppPaused(paused, false);
     }
 }

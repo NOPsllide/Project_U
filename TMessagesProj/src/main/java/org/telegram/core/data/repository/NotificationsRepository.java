@@ -1,5 +1,6 @@
 package org.telegram.core.data.repository;
 
+import org.telegram.messenger.MessageObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.NotificationsSettingsActivity;
 import java.util.ArrayList;
@@ -59,4 +60,24 @@ public interface NotificationsRepository {
     void muteUntil(long did, int topicId, int timeInSeconds);
 
     void deleteAllExceptions(int currentType, ArrayList<NotificationsSettingsActivity.NotificationException> exceptions, int topicId);
+
+    ArrayList<MessageObject> getPopupMessages(boolean isReply, int forceAccount);
+
+    void markDialogAsRead(int account, long dialogId, int id, int date);
+
+    void sendTyping(int account, long dialogId, int classGuid);
+
+    void sendNotificationCallback(int account, long dialogId, int messageId, byte[] data);
+
+    TLRPC.User getUser(int account, long userId);
+
+    TLRPC.Chat getChat(int account, long chatId);
+
+    TLRPC.EncryptedChat getEncryptedChat(int account, int chatId);
+
+    CharSequence getPrintingString(int account, long dialogId);
+
+    Integer getPrintingStringType(int account, long dialogId);
+
+    void setAppPaused(int account, boolean paused);
 }
