@@ -98,4 +98,20 @@ public interface ChatRepository {
     int exportPermanentChatInvite(long chatId, LinkCallback callback);
 
     int deactivateAllUsernames(long chatId, LinkCallback callback);
+
+    void putUser(TLRPC.User user, boolean inCache);
+
+    TLRPC.InputUser getInputUser(TLRPC.User user);
+
+    void addUsersToChannel(long chatId, ArrayList<TLRPC.InputUser> users);
+
+    ArrayList<TLRPC.TL_contact> getContacts();
+
+    ArrayList<TLRPC.Dialog> getAllDialogs();
+
+    int getMaxGroupCount();
+
+    int getMaxMegagroupCount();
+
+    int getMaxBroadcastCount();
 }

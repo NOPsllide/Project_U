@@ -3,6 +3,7 @@ package org.telegram.core.data.repository;
 import android.text.TextUtils;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatObject;
+import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
@@ -397,5 +398,45 @@ public class ChatRepositoryImpl implements ChatRepository {
                 }
             }
         }));
+    }
+
+    @Override
+    public void putUser(TLRPC.User user, boolean inCache) {
+        MessagesController.getInstance(accountNum).putUser(user, inCache);
+    }
+
+    @Override
+    public TLRPC.InputUser getInputUser(TLRPC.User user) {
+        return MessagesController.getInstance(accountNum).getInputUser(user);
+    }
+
+    @Override
+    public void addUsersToChannel(long chatId, ArrayList<TLRPC.InputUser> users) {
+        MessagesController.getInstance(accountNum).addUsersToChannel(chatId, users, null);
+    }
+
+    @Override
+    public ArrayList<TLRPC.TL_contact> getContacts() {
+        return ContactsController.getInstance(accountNum).contacts;
+    }
+
+    @Override
+    public ArrayList<TLRPC.Dialog> getAllDialogs() {
+        return MessagesController.getInstance(accountNum).getAllDialogs();
+    }
+
+    @Override
+    public int getMaxGroupCount() {
+        return MessagesController.getInstance(accountNum).maxGroupCount;
+    }
+
+    @Override
+    public int getMaxMegagroupCount() {
+        return MessagesController.getInstance(accountNum).maxMegagroupCount;
+    }
+
+    @Override
+    public int getMaxBroadcastCount() {
+        return MessagesController.getInstance(accountNum).maxBroadcastCount;
     }
 }
