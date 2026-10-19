@@ -91,12 +91,15 @@ import org.telegram.ui.Components.LinkSpanDrawable;
 import org.telegram.ui.Components.TypefaceSpan;
 import org.telegram.ui.Components.URLSpanNoUnderline;
 
+import org.telegram.core.presenter.CameraScanPresenter;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 @TargetApi(18)
-public class CameraScanActivity extends BaseFragment {
+public class CameraScanActivity extends BaseFragment implements CameraScanPresenter.CameraScanView {
 
+    private CameraScanPresenter presenter;
     private TextView titleTextView;
     private TextView descriptionText;
     private CameraView cameraView;
@@ -221,6 +224,8 @@ public class CameraScanActivity extends BaseFragment {
     public CameraScanActivity(int type) {
         super();
         currentType = type;
+        presenter = new CameraScanPresenter();
+        presenter.attachView(this);
         if (isQr()) {
             Utilities.globalQueue.postRunnable(() -> {
                 qrReader = new QRCodeReader();
@@ -242,8 +247,25 @@ public class CameraScanActivity extends BaseFragment {
     }
 
     @Override
+    public void onMrzRecognized(MrzRecognizer.Result result) {
+        if (delegate != null) {
+            delegate.didFindMrzInfo(result);
+        }
+    }
+
+    @Override
+    public void onQrRecognized(String text) {
+        if (delegate != null) {
+            delegate.didFindQr(text);
+        }
+    }
+
+    @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         destroy(false, null);
         if (getParentActivity() != null) {
             getParentActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -561,9 +583,7 @@ public class CameraScanActivity extends BaseFragment {
             titleTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
             recognizedMrzView.setTypeface(Typeface.MONOSPACE);
         } else {
-            if (needGalleryButton) {
-                //titleTextView.setText(LocaleController.getString("WalletScanCode", R.string.WalletScanCode));
-            } else {
+            if (!needGalleryButton) {
                 if (currentType == TYPE_QR) {
                     titleTextView.setText(LocaleController.getString("AuthAnotherClientScan", R.string.AuthAnotherClientScan));
                 } else {
@@ -603,9 +623,7 @@ public class CameraScanActivity extends BaseFragment {
             titleTextView.setTextColor(0xffffffff);
             recognizedMrzView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
             recognizedMrzView.setPadding(AndroidUtilities.dp(10), 0, AndroidUtilities.dp(10), AndroidUtilities.dp(10));
-            if (needGalleryButton) {
-                //recognizedMrzView.setText(LocaleController.getString("WalletScanCodeNotFound", R.string.WalletScanCodeNotFound));
-            } else {
+            if (!needGalleryButton) {
                 recognizedMrzView.setText(LocaleController.getString("AuthAnotherClientNotFound", R.string.AuthAnotherClientNotFound));
             }
             viewGroup.addView(recognizedMrzView);
@@ -793,12 +811,10 @@ public class CameraScanActivity extends BaseFragment {
     private void updateRecognizedBounds(RectF newBounds) {
         final long now = SystemClock.elapsedRealtime();
         if (lastBoundsUpdate == 0) {
-            // first update = set
             lastBoundsUpdate = now - boundsUpdateDuration;
             bounds.set(newBounds);
             fromBounds.set(newBounds);
         } else {
-            // next updates = interpolate
             if (fromBounds != null && now - lastBoundsUpdate < boundsUpdateDuration) {
                 float t = (now - lastBoundsUpdate) / (float) boundsUpdateDuration;
                 t = Math.min(1, Math.max(0, t));
@@ -1093,7 +1109,6 @@ public class CameraScanActivity extends BaseFragment {
                     if (code.cornerPoints == null || code.cornerPoints.length == 0) {
                         bounds = null;
                     } else {
-//                        bounds.set(code.getBoundingBox());
                         float minX = Float.MAX_VALUE,
                               maxX = Float.MIN_VALUE,
                               minY = Float.MAX_VALUE,
@@ -1207,7 +1222,6 @@ public class CameraScanActivity extends BaseFragment {
             }
             if (needGalleryButton) {
                 if (!text.startsWith("ton://transfer/")) {
-                    //onNoWalletFound(bitmap != null);
                     return null;
                 }
                 Uri uri = Uri.parse(text);
