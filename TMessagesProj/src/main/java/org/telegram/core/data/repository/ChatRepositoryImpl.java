@@ -561,4 +561,39 @@ public class ChatRepositoryImpl implements ChatRepository {
     public void loadStickersByEmojiOrName(String name, boolean isDice, boolean forCurrentAccount) {
         MediaDataController.getInstance(accountNum).loadStickersByEmojiOrName(name, isDice, forCurrentAccount);
     }
+
+    @Override
+    public void loadFullChat(long chatId, int classGuid, boolean force) {
+        MessagesController.getInstance(accountNum).loadFullChat(chatId, classGuid, force);
+    }
+
+    @Override
+    public void changeChatTitle(long chatId, String title) {
+        MessagesController.getInstance(accountNum).changeChatTitle(chatId, title);
+    }
+
+    @Override
+    public void updateChatAbout(long chatId, String about, TLRPC.ChatFull info) {
+        MessagesController.getInstance(accountNum).updateChatAbout(chatId, about, info);
+    }
+
+    @Override
+    public void toggleChannelSignatures(long chatId, boolean signatures) {
+        MessagesController.getInstance(accountNum).toggleChannelSignatures(chatId, signatures);
+    }
+
+    @Override
+    public void toggleChannelForum(long chatId, boolean forum) {
+        MessagesController.getInstance(accountNum).toggleChannelForum(chatId, forum);
+    }
+
+    @Override
+    public void convertToMegaGroup(android.app.Activity activity, long chatId, BaseFragment fragment, org.telegram.messenger.MessagesStorage.LongCallback callback) {
+        MessagesController.getInstance(accountNum).convertToMegaGroup(activity, chatId, fragment, callback);
+    }
+
+    @Override
+    public int getForumUpgradeParticipantsMin() {
+        return MessagesController.getInstance(accountNum).forumUpgradeParticipantsMin;
+    }
 }

@@ -149,4 +149,18 @@ public interface ChatRepository {
     TLRPC.TL_messages_stickerSet getStickerSetByEmojiOrName(String name);
 
     void loadStickersByEmojiOrName(String name, boolean isDice, boolean forCurrentAccount);
+
+    void loadFullChat(long chatId, int classGuid, boolean force);
+
+    void changeChatTitle(long chatId, String title);
+
+    void updateChatAbout(long chatId, String about, TLRPC.ChatFull info);
+
+    void toggleChannelSignatures(long chatId, boolean signatures);
+
+    void toggleChannelForum(long chatId, boolean forum);
+
+    void convertToMegaGroup(android.app.Activity activity, long chatId, BaseFragment fragment, org.telegram.messenger.MessagesStorage.LongCallback callback);
+
+    int getForumUpgradeParticipantsMin();
 }
