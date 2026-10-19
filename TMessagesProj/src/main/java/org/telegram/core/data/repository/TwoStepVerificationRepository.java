@@ -1,5 +1,7 @@
 package org.telegram.core.data.repository;
 
+import org.telegram.tgnet.RequestDelegate;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
 public interface TwoStepVerificationRepository {
@@ -20,4 +22,20 @@ public interface TwoStepVerificationRepository {
     void resetSavedPassword();
 
     void postPasswordNotification(TLRPC.account_Password password);
+
+    void resendPasswordEmail(Callback<TLRPC.account_PasswordEmailStatus> callback);
+
+    void cancelPasswordEmail(Callback<TLRPC.TL_boolTrue> callback);
+
+    void confirmPasswordEmail(String code, Callback<TLRPC.TL_boolTrue> callback);
+
+    void recoverPassword(String code, TLRPC.TL_account_passwordInputSettings newSettings, Callback<TLObject> callback);
+
+    void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.account_PasswordSettings> callback);
+
+    void sendRequest(TLObject req, RequestDelegate delegate, int flags);
+
+    void postNotification(int id, Object... args);
+
+    void removeSuggestion(String suggestion);
 }
