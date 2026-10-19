@@ -88,12 +88,15 @@ import org.telegram.ui.Components.TextViewSwitcher;
 import org.telegram.ui.Components.TransformableLoginButtonView;
 import org.telegram.ui.Components.VerticalPositionAutoAnimator;
 
+import org.telegram.core.presenter.PasscodePresenter;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class PasscodeActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PasscodeActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, PasscodePresenter.PasscodeView {
+    private PasscodePresenter presenter;
     public final static int TYPE_MANAGE_CODE_SETTINGS = 0,
             TYPE_SETUP_CODE = 1,
             TYPE_ENTER_CODE_TO_MANAGE_SETTINGS = 2;
@@ -169,6 +172,8 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter = new PasscodePresenter();
+        presenter.attachView(this);
         updateRows();
         if (type == TYPE_MANAGE_CODE_SETTINGS) {
             NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.didSetPasscode);
@@ -179,6 +184,9 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (type == TYPE_MANAGE_CODE_SETTINGS) {
             NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.didSetPasscode);
         }
@@ -699,12 +707,6 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
         return type != TYPE_MANAGE_CODE_SETTINGS;
     }
 
-    /**
-     * Sets custom keyboard visibility
-     *
-     * @param visible   If it should be visible
-     * @param animate   If change should be animated
-     */
     private void setCustomKeyboardVisible(boolean visible, boolean animate) {
         if (visible) {
             AndroidUtilities.hideKeyboard(fragmentView);
@@ -746,12 +748,6 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
         }
     }
 
-    /**
-     * Sets floating button visibility
-     *
-     * @param visible   If it should be visible
-     * @param animate   If change should be animated
-     */
     private void setFloatingButtonVisible(boolean visible, boolean animate) {
         if (floatingButtonAnimator != null) {
             floatingButtonAnimator.cancel();
@@ -792,9 +788,6 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
         }
     }
 
-    /**
-     * @return New fragment to open when Passcode entry gets clicked
-     */
     public static BaseFragment determineOpenFragment() {
         if (SharedConfig.passcodeHash.length() != 0) {
             return new PasscodeActivity(TYPE_ENTER_CODE_TO_MANAGE_SETTINGS);
@@ -857,12 +850,17 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.didSetPasscode && (args.length == 0 || (Boolean) args[0])) {
-            if (type == TYPE_MANAGE_CODE_SETTINGS) {
-                updateRows();
-                if (listAdapter != null) {
-                    listAdapter.notifyDataSetChanged();
-                }
+        if (presenter != null) {
+            presenter.handleNotification(id, args);
+        }
+    }
+
+    @Override
+    public void onPasscodeChanged() {
+        if (type == TYPE_MANAGE_CODE_SETTINGS) {
+            updateRows();
+            if (listAdapter != null) {
+                listAdapter.notifyDataSetChanged();
             }
         }
     }
@@ -938,7 +936,7 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
                 setFloatingButtonVisible(show, animate);
                 AndroidUtilities.cancelRunOnUIThread(onShowKeyboardCallback);
             };
-            AndroidUtilities.runOnUIThread(onShowKeyboardCallback, 3000); // Timeout for floating keyboard
+            AndroidUtilities.runOnUIThread(onShowKeyboardCallback, 3000);
         } else {
             setFloatingButtonVisible(show, animate);
         }
@@ -946,9 +944,6 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
         showKeyboard();
     }
 
-    /**
-     * @return If custom keyboard should be visible
-     */
     private boolean isCustomKeyboardVisible() {
         return isPinCode() && type != TYPE_MANAGE_CODE_SETTINGS && !AndroidUtilities.isTablet() &&
                 AndroidUtilities.displaySize.x < AndroidUtilities.displaySize.y && !AndroidUtilities.isAccessibilityTouchExplorationEnabled();
