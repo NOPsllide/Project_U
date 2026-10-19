@@ -97,11 +97,13 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.RecyclerViewItemRangeSelector;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.StickerEmptyView;
+import org.telegram.core.data.repository.MediaRepositoryImpl;
+import org.telegram.core.presenter.PhotoPickerPresenter;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 
-public class PhotoPickerActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PhotoPickerActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, PhotoPickerPresenter.PhotoPickerView {
 
     public interface PhotoPickerActivityDelegate {
         void selectedPhotosChanged();
@@ -116,6 +118,8 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         void shouldSearchText(String text);
         void shouldClearRecentSearch();
     }
+
+    private PhotoPickerPresenter presenter;
 
     private int type;
     private HashMap<Object, Object> selectedPhotos;
@@ -433,8 +437,11 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         this.allowCaption = allowCaption;
         this.forceDarckTheme = forceDarkTheme;
 
+        presenter = new PhotoPickerPresenter(new MediaRepositoryImpl(currentAccount), currentAccount);
+        presenter.attachView(this);
+
         if (selectedAlbum == null) {
-            loadRecentSearch();
+            recentSearches.addAll(presenter.loadRecentSearches());
         }
 
         if (forceDarkTheme) {
@@ -461,9 +468,8 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
     @Override
     public void onFragmentDestroy() {
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.closeChats);
-        if (imageReqId != 0) {
-            ConnectionsManager.getInstance(currentAccount).cancelRequest(imageReqId, true);
-            imageReqId = 0;
+        if (presenter != null) {
+            presenter.detachView();
         }
         if (commentTextView != null) {
             commentTextView.onDestroy();
@@ -552,9 +558,8 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
                         lastSearchString = null;
                         imageSearchEndReached = true;
                         searching = false;
-                        if (imageReqId != 0) {
-                            ConnectionsManager.getInstance(currentAccount).cancelRequest(imageReqId, true);
-                            imageReqId = 0;
+                        if (presenter != null) {
+                            presenter.cancelSearch();
                         }
                         emptyView.title.setText(LocaleController.getString("NoRecentSearches", R.string.NoRecentSearches));
                         emptyView.showProgress(false);
@@ -930,11 +935,8 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         emptyView.title.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText));
         emptyView.addView(flickerView, 0);
         if (selectedAlbum != null) {
-//            emptyView.setShowAtCenter(false);
             emptyView.title.setText(LocaleController.getString("NoPhotos", R.string.NoPhotos));
         } else {
-//            emptyView.setShowAtTop(true);
-//            emptyView.setPadding(0, AndroidUtilities.dp(200), 0, 0);
             emptyView.title.setText(LocaleController.getString("NoRecentSearches", R.string.NoRecentSearches));
         }
         emptyView.showProgress(false, false);
@@ -987,7 +989,7 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
             }
             commentTextView = new EditTextEmoji(context, sizeNotifierFrameLayout, null, EditTextEmoji.STYLE_DIALOG, false);
             InputFilter[] inputFilters = new InputFilter[1];
-            inputFilters[0] = new InputFilter.LengthFilter(MessagesController.getInstance(UserConfig.selectedAccount).maxCaptionLength);
+            inputFilters[0] = new InputFilter.LengthFilter(presenter != null ? presenter.getMaxCaptionLength() : MessagesController.getInstance(currentAccount).maxCaptionLength);
             commentTextView.setFilters(inputFilters);
             commentTextView.setHint(LocaleController.getString("AddCaption", R.string.AddCaption));
             commentTextView.onResume();
@@ -1202,10 +1204,8 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         if (commentTextView.isPopupShowing()) {
             fragmentView.setTranslationY(y);
             listView.setTranslationY(0);
-//            emptyView.setTranslationY(0);
         } else {
             listView.setTranslationY(y);
-//            emptyView.setTranslationY(y);
         }
     }
 
@@ -1256,7 +1256,9 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
             listAdapter.notifyDataSetChanged();
         }
         emptyView.showProgress(false);
-        saveRecentSearch();
+        if (presenter != null) {
+            presenter.saveRecentSearches(recentSearches);
+        }
     }
 
     @Override
@@ -1306,28 +1308,6 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         initialSearchString = text;
     }
 
-    private void saveRecentSearch() {
-        SharedPreferences.Editor editor = ApplicationLoader.applicationContext.getSharedPreferences("web_recent_search", Activity.MODE_PRIVATE).edit();
-        editor.clear();
-        editor.putInt("count", recentSearches.size());
-        for (int a = 0, N = recentSearches.size(); a < N; a++) {
-            editor.putString("recent" + a, recentSearches.get(a));
-        }
-        editor.commit();
-    }
-
-    private void loadRecentSearch() {
-        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("web_recent_search", Activity.MODE_PRIVATE);
-        int count = preferences.getInt("count", 0);
-        for (int a = 0; a < count; a++) {
-            String str = preferences.getString("recent" + a, null);
-            if (str == null) {
-                break;
-            }
-            recentSearches.add(str);
-        }
-    }
-
     private void addToRecentSearches(String query) {
         for (int a = 0, N = recentSearches.size(); a < N; a++) {
             String str = recentSearches.get(a);
@@ -1340,7 +1320,9 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         while (recentSearches.size() > 20) {
             recentSearches.remove(recentSearches.size() - 1);
         }
-        saveRecentSearch();
+        if (presenter != null) {
+            presenter.saveRecentSearches(recentSearches);
+        }
     }
 
     private void processSearch(EditText editText) {
@@ -1573,173 +1555,63 @@ public class PhotoPickerActivity extends BaseFragment implements NotificationCen
         if (listAdapter != null) {
             listAdapter.notifyDataSetChanged();
         }
-        if (searching || recentSearches.size() > 0 && (lastSearchString == null || TextUtils.isEmpty(lastSearchString))) {
+        boolean isSearching = presenter != null && presenter.isSearching();
+        if (isSearching || recentSearches.size() > 0 && (lastSearchString == null || TextUtils.isEmpty(lastSearchString))) {
             emptyView.showProgress(true);
         } else {
             emptyView.showProgress(false);
         }
     }
 
-    private void searchBotUser(boolean gif) {
-        if (searchingUser) {
-            return;
+    private void searchImages(boolean gif, final String query, final String offset, boolean searchUser) {
+        lastSearchString = query;
+        addToRecentSearches(query);
+        long dialogId = 0;
+        if (chatActivity != null) {
+            dialogId = chatActivity.getDialogId();
         }
-        searchingUser = true;
-        TLRPC.TL_contacts_resolveUsername req = new TLRPC.TL_contacts_resolveUsername();
-        req.username = gif ? MessagesController.getInstance(currentAccount).gifSearchBot : MessagesController.getInstance(currentAccount).imageSearchBot;
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-            if (response != null) {
-                AndroidUtilities.runOnUIThread(() -> {
-                    TLRPC.TL_contacts_resolvedPeer res = (TLRPC.TL_contacts_resolvedPeer) response;
-                    MessagesController.getInstance(currentAccount).putUsers(res.users, false);
-                    MessagesController.getInstance(currentAccount).putChats(res.chats, false);
-                    MessagesStorage.getInstance(currentAccount).putUsersAndChats(res.users, res.chats, true, true);
-                    String str = lastSearchImageString;
-                    lastSearchImageString = null;
-                    searchImages(gif, str, "", false);
-                });
-            }
-        });
+        if (presenter != null) {
+            presenter.searchImages(gif, query, offset, dialogId, classGuid, itemSize, searchResultKeys);
+        }
     }
 
-    private void searchImages(boolean gif, final String query, final String offset, boolean searchUser) {
-        if (searching) {
-            searching = false;
-            if (imageReqId != 0) {
-                ConnectionsManager.getInstance(currentAccount).cancelRequest(imageReqId, true);
-                imageReqId = 0;
-            }
+    @Override
+    public void onRecentSearchesLoaded(ArrayList<String> searches) {
+        recentSearches.clear();
+        if (searches != null) {
+            recentSearches.addAll(searches);
         }
-
-        lastSearchImageString = query;
-        searching = true;
-
-        TLObject object = MessagesController.getInstance(currentAccount).getUserOrChat(gif ? MessagesController.getInstance(currentAccount).gifSearchBot : MessagesController.getInstance(currentAccount).imageSearchBot);
-        if (!(object instanceof TLRPC.User)) {
-            if (searchUser) {
-                searchBotUser(gif);
-            }
-            return;
+        if (listAdapter != null) {
+            listAdapter.notifyDataSetChanged();
         }
-        TLRPC.User user = (TLRPC.User) object;
+    }
 
-        TLRPC.TL_messages_getInlineBotResults req = new TLRPC.TL_messages_getInlineBotResults();
-        req.query = query == null ? "" : query;
-        req.bot = MessagesController.getInstance(currentAccount).getInputUser(user);
-        req.offset = offset;
-
-        if (chatActivity != null) {
-            long dialogId = chatActivity.getDialogId();
-            if (DialogObject.isEncryptedDialog(dialogId)) {
-                req.peer = new TLRPC.TL_inputPeerEmpty();
-            } else {
-                req.peer = getMessagesController().getInputPeer(dialogId);
+    @Override
+    public void onSearchResultsLoaded(ArrayList<MediaController.SearchImage> newResults, String nextOffset, boolean endReached, int token) {
+        int oldCount = searchResult.size();
+        nextImagesSearchOffset = nextOffset;
+        imageSearchEndReached = endReached;
+        if (newResults != null && !newResults.isEmpty()) {
+            searchResult.addAll(newResults);
+            if (listAdapter != null) {
+                listAdapter.notifyItemRangeInserted(oldCount, newResults.size());
             }
-        } else {
-            req.peer = new TLRPC.TL_inputPeerEmpty();
-        }
-
-        final int token = ++lastSearchToken;
-        imageReqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            addToRecentSearches(query);
-            if (token != lastSearchToken) {
-                return;
-            }
-            int addedCount = 0;
-            int oldCount = searchResult.size();
-            if (response != null) {
-
-                TLRPC.messages_BotResults res = (TLRPC.messages_BotResults) response;
-                nextImagesSearchOffset = res.next_offset;
-
-                for (int a = 0, count = res.results.size(); a < count; a++) {
-                    TLRPC.BotInlineResult result = res.results.get(a);
-                    if (!gif && !"photo".equals(result.type) || gif && !"gif".equals(result.type)) {
-                        continue;
-                    }
-                    if (searchResultKeys.containsKey(result.id)) {
-                        continue;
-                    }
-
-                    MediaController.SearchImage image = new MediaController.SearchImage();
-
-                    if (gif && result.document != null) {
-                        for (int b = 0; b < result.document.attributes.size(); b++) {
-                            TLRPC.DocumentAttribute attribute = result.document.attributes.get(b);
-                            if (attribute instanceof TLRPC.TL_documentAttributeImageSize || attribute instanceof TLRPC.TL_documentAttributeVideo) {
-                                image.width = attribute.w;
-                                image.height = attribute.h;
-                                break;
-                            }
-                        }
-                        image.document = result.document;
-                        image.size = 0;
-                        if (result.photo != null) {
-                            TLRPC.PhotoSize size = FileLoader.getClosestPhotoSizeWithSize(result.photo.sizes, itemSize, true);
-                            if (size != null) {
-                                result.document.thumbs.add(size);
-                                result.document.flags |= 1;
-                            }
-                        }
-                    } else if (!gif && result.photo != null) {
-                        TLRPC.PhotoSize size = FileLoader.getClosestPhotoSizeWithSize(result.photo.sizes, AndroidUtilities.getPhotoSize());
-                        TLRPC.PhotoSize size2 = FileLoader.getClosestPhotoSizeWithSize(result.photo.sizes, 320);
-                        if (size == null) {
-                            continue;
-                        }
-                        image.width = size.w;
-                        image.height = size.h;
-                        image.photoSize = size;
-                        image.photo = result.photo;
-                        image.size = size.size;
-                        image.thumbPhotoSize = size2;
-                    } else {
-                        if (result.content == null) {
-                            continue;
-                        }
-                        for (int b = 0; b < result.content.attributes.size(); b++) {
-                            TLRPC.DocumentAttribute attribute = result.content.attributes.get(b);
-                            if (attribute instanceof TLRPC.TL_documentAttributeImageSize) {
-                                image.width = attribute.w;
-                                image.height = attribute.h;
-                                break;
-                            }
-                        }
-                        if (result.thumb != null) {
-                            image.thumbUrl = result.thumb.url;
-                        } else {
-                            image.thumbUrl = null;
-                        }
-                        image.imageUrl = result.content.url;
-                        image.size = gif ? 0 : result.content.size;
-                    }
-
-                    image.id = result.id;
-                    image.type = gif ? 1 : 0;
-                    image.inlineResult = result;
-                    image.params = new HashMap<>();
-                    image.params.put("id", result.id);
-                    image.params.put("query_id", "" + res.query_id);
-                    image.params.put("bot_name", user.username);
-
-                    searchResult.add(image);
-
-                    searchResultKeys.put(image.id, image);
-                    addedCount++;
-                }
-                imageSearchEndReached = oldCount == searchResult.size() || nextImagesSearchOffset == null;
-            }
-            searching = false;
-            if (addedCount != 0) {
-                listAdapter.notifyItemRangeInserted(oldCount, addedCount);
-            } else if (imageSearchEndReached) {
+        } else if (imageSearchEndReached) {
+            if (listAdapter != null) {
                 listAdapter.notifyItemRemoved(searchResult.size() - 1);
             }
-            if (searchResult.size() <= 0) {
-                emptyView.showProgress(false);
-            }
-        }));
-        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(imageReqId, classGuid);
+        }
+        if (searchResult.size() <= 0 && emptyView != null) {
+            emptyView.showProgress(false);
+        }
+    }
+
+    @Override
+    public void onSearchLoadingStateChanged(boolean loading) {
+        searching = loading;
+        if (emptyView != null && !loading && searchResult.size() <= 0) {
+            emptyView.showProgress(false);
+        }
     }
 
     public void setDelegate(PhotoPickerActivityDelegate photoPickerActivityDelegate) {
