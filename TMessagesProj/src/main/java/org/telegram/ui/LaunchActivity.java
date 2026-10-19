@@ -188,7 +188,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class LaunchActivity extends BasePermissionsActivity implements INavigationLayout.INavigationLayoutDelegate, NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate {
+public class LaunchActivity extends BasePermissionsActivity implements INavigationLayout.INavigationLayoutDelegate, NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate, org.telegram.core.presenter.LaunchPresenter.LaunchView {
+
+    private org.telegram.core.presenter.LaunchPresenter presenter;
+
     public final static Pattern PREFIX_T_ME_PATTERN = Pattern.compile("^(?:http(?:s|)://|)([A-z0-9-]+?)\\.t\\.me");
 
     public static boolean isResumed;
@@ -294,6 +297,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         ApplicationLoader.postInitApplication();
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
+        presenter = new org.telegram.core.presenter.LaunchPresenter(currentAccount);
+        presenter.attachView(this);
         if (!UserConfig.getInstance(currentAccount).isClientActivated()) {
             Intent intent = getIntent();
             boolean isProxy = false;
@@ -664,7 +669,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         @Override
                         public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
                             super.onTransitionAnimationEnd(isOpen, backward);
-                            if (!isOpen && backward) { // closed
+                            if (!isOpen && backward) {
                                 drawerLayoutContainer.setDrawCurrentPreviewFragmentAbove(false);
                                 actionBarLayout.getView().invalidate();
                             }
@@ -1132,7 +1137,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 }
                 ConnectionsManager.getInstance(currentAccount).sendRequest(req, (res, err) -> {
                     if (!(res instanceof TLRPC.TL_boolTrue)) {
-                        // TODO: reject
                     }
                 });
                 if (popup[0] != null) {
@@ -1205,13 +1209,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && checkNavigationBar && (!useCurrentFragment || currentFragment == null || !currentFragment.isInPreviewMode())) {
                 final Window window = getWindow();
                 final int color = currentFragment != null && useCurrentFragment ? currentFragment.getNavigationBarColor() : Theme.getColor(Theme.key_windowBackgroundGray, null, true);
-//                Theme.ResourcesProvider resourcesProvider = currentFragment != null ? currentFragment.getResourceProvider() : null;
-//                if (resourcesProvider != null) {
-//                    color = resourcesProvider.getColor(Theme.key_windowBackgroundGray);
-//                }
-//                if (color == null) {
-//                    color = Theme.getColor(Theme.key_windowBackgroundGray, null, true);
-//                }
                 if (window.getNavigationBarColor() != color) {
                     window.setNavigationBarColor(color);
                     final float brightness = AndroidUtilities.computePerceivedBrightness(color);
@@ -2544,9 +2541,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 } else if (intent.getAction().equals("new_dialog")) {
                     open_new_dialog = 1;
                 } else if (intent.getAction().startsWith("com.tmessages.openchat")) {
-//                    Integer chatIdInt = intent.getIntExtra("chatId", 0);
                     long chatId = intent.getLongExtra("chatId", 0);
-//                    Integer userIdInt = intent.getIntExtra("userId", 0);
                     long userId = intent.getLongExtra("userId", 0);
                     int encId = intent.getIntExtra("encId", 0);
                     int widgetId = intent.getIntExtra("appWidgetId", 0);
@@ -3535,7 +3530,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             args.putBoolean("allowGroups", botChat != null);
                             args.putBoolean("allowChannels", botChannel != null);
                             final String botHash = TextUtils.isEmpty(botChat) ? (TextUtils.isEmpty(botChannel) ? null : botChannel) : botChat;
-//                            args.putString("addToGroupAlertString", LocaleController.formatString("AddToTheGroupAlertText", R.string.AddToTheGroupAlertText, UserObject.getUserName(user), "%1$s"));
                             DialogsActivity fragment = new DialogsActivity(args);
                             fragment.setDelegate((fragment12, dids, message1, param) -> {
                                 long did = dids.get(0).dialogId;
@@ -4397,7 +4391,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 if (user != null && (!user.self || allowSelf)) {
                     foundContacts.add(contact);
                 } else {
-                    // disable search by name
                     userName = null;
                 }
             }
@@ -5162,6 +5155,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (PhotoViewer.getPipInstance() != null) {
             PhotoViewer.getPipInstance().destroyPhotoViewer();
         }
@@ -5236,7 +5232,6 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             Theme.checkAutoNightThemeConditions();
         }
         checkWasMutedByAdmin(true);
-        //FileLog.d("UI resume time = " + (SystemClock.elapsedRealtime() - ApplicationLoader.startTime));
         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.startAllHeavyOperations, 4096);
         MediaController.getInstance().setFeedbackView(actionBarLayout.getView(), true);
         ApplicationLoader.mainInterfacePaused = false;
@@ -6697,7 +6692,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 return false;
             }
         } else {
-            boolean allow = true; // TODO: Make it a flag inside fragment itself, maybe BaseFragment#isDrawerOpenAllowed()?
+            boolean allow = true;
             if (fragment instanceof LoginActivity || fragment instanceof IntroActivity) {
                 if (mainFragmentsStack.size() == 0 || mainFragmentsStack.get(0) instanceof IntroActivity) {
                     allow = false;
