@@ -166,6 +166,8 @@ public class FilterCreateActivity extends BaseFragment implements FilterCreatePr
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new FilterCreatePresenter(currentAccount);
+        presenter.attachView(this);
         updateRows();
         return super.onFragmentCreate();
     }
@@ -271,13 +273,6 @@ public class FilterCreateActivity extends BaseFragment implements FilterCreatePr
         if (adapter != null) {
             adapter.notifyDataSetChanged();
         }
-    }
-
-    @Override
-    public boolean onFragmentCreate() {
-        presenter = new FilterCreatePresenter(currentAccount);
-        presenter.attachView(this);
-        return super.onFragmentCreate();
     }
 
     @Override
