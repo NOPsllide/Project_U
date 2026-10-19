@@ -32,6 +32,16 @@ public interface ThemeRepository {
 
     long calcHash(long hash, long id);
 
+    void saveThemeToServer(Theme.ThemeInfo themeInfo, Theme.ThemeAccent accent);
+
+    void saveTheme(Theme.ThemeInfo themeInfo, Theme.ThemeAccent accent, boolean night, boolean delete);
+
+    boolean deleteTheme(Theme.ThemeInfo themeInfo);
+
+    void postNotification(int id, Object... args);
+
+    void postGlobalNotification(int id, Object... args);
+
     interface SlugCheckCallback {
         void onResult(boolean available, boolean inUse);
         void onError();

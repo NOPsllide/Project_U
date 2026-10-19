@@ -2,7 +2,9 @@ package org.telegram.core.data.repository;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
+import org.telegram.messenger.NotificationCenter;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
@@ -155,5 +157,30 @@ public class ThemeRepositoryImpl implements ThemeRepository {
     @Override
     public long calcHash(long hash, long id) {
         return MediaDataController.calcHash(hash, id);
+    }
+
+    @Override
+    public void saveThemeToServer(Theme.ThemeInfo themeInfo, Theme.ThemeAccent accent) {
+        MessagesController.getInstance(accountNum).saveThemeToServer(themeInfo, accent);
+    }
+
+    @Override
+    public void saveTheme(Theme.ThemeInfo themeInfo, Theme.ThemeAccent accent, boolean night, boolean delete) {
+        MessagesController.getInstance(themeInfo != null ? themeInfo.account : accountNum).saveTheme(themeInfo, accent, night, delete);
+    }
+
+    @Override
+    public boolean deleteTheme(Theme.ThemeInfo themeInfo) {
+        return Theme.deleteTheme(themeInfo);
+    }
+
+    @Override
+    public void postNotification(int id, Object... args) {
+        NotificationCenter.getInstance(accountNum).postNotificationName(id, args);
+    }
+
+    @Override
+    public void postGlobalNotification(int id, Object... args) {
+        NotificationCenter.getGlobalInstance().postNotificationName(id, args);
     }
 }

@@ -93,6 +93,8 @@ import org.telegram.ui.Components.ShareAlert;
 import org.telegram.ui.Components.SimpleThemeDescription;
 import org.telegram.ui.Components.SwipeGestureSettingsView;
 import org.telegram.ui.Components.ThemeEditorView;
+import org.telegram.core.data.repository.ThemeRepositoryImpl;
+import org.telegram.core.presenter.ThemePresenter;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -104,12 +106,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class ThemeActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ThemeActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ThemePresenter.ThemeView {
 
     public final static int THEME_TYPE_BASIC = 0;
     public final static int THEME_TYPE_NIGHT = 1;
     public final static int THEME_TYPE_OTHER = 2;
     public final static int THEME_TYPE_THEMES_BROWSER = 3;
+
+    private ThemePresenter presenter;
 
     private ListAdapter listAdapter;
     private RecyclerListView listView;
@@ -404,6 +408,8 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
 
     public ThemeActivity(int type) {
         super();
+        presenter = new ThemePresenter(new ThemeRepositoryImpl(currentAccount), currentAccount);
+        presenter.attachView(this);
         currentType = type;
         updateRows(true);
     }
@@ -590,16 +596,6 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
             themeHeaderRow = rowCount++;
 
             themeListRow2 = rowCount++;
-            //
-//            themeListRow = rowCount++;
-//            hasThemeAccents = Theme.getCurrentTheme().hasAccentColors();
-//            if (themesHorizontalListCell != null) {
-//                themesHorizontalListCell.setDrawDivider(hasThemeAccents);
-//            }
-//            if (hasThemeAccents) {
-//                themeAccentListRow = rowCount++;
-//            }
-            //
             themeInfoRow = rowCount++;
 
             bubbleRadiusHeaderRow = rowCount++;
@@ -772,6 +768,9 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         stopLocationUpdate();
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.locationPermissionGranted);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.didSetNewWallpapper);
@@ -784,6 +783,18 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
         getNotificationCenter().removeObserver(this, NotificationCenter.themeUploadedToServer);
         getNotificationCenter().removeObserver(this, NotificationCenter.themeUploadError);
         Theme.saveAutoNightThemeConfig();
+    }
+
+    @Override
+    public void onThemeListUpdated() {
+        updateRows(true);
+    }
+
+    @Override
+    public void onThemeAccentListUpdated() {
+        if (listAdapter != null && themeAccentListRow != -1) {
+            listAdapter.notifyItemChanged(themeAccentListRow, new Object());
+        }
     }
 
     @Override
@@ -884,8 +895,8 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     Theme.ThemeInfo currentTheme = Theme.getCurrentTheme();
                     Theme.ThemeAccent accent = currentTheme.getAccent(false);
                     if (accent.info == null) {
-                        getMessagesController().saveThemeToServer(accent.parentTheme, accent);
-                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needShareTheme, accent.parentTheme, accent);
+                        presenter.saveThemeToServer(accent.parentTheme, accent);
+                        presenter.postGlobalNotification(NotificationCenter.needShareTheme, accent.parentTheme, accent);
                     } else {
                         String link = "https://" + getMessagesController().linkPrefix + "/addtheme/" + accent.info.slug;
                         showDialog(new ShareAlert(getParentActivity(), null, link, false, link, false));
@@ -929,7 +940,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                                 themesHorizontalListCell.selectTheme(themeInfo);
                                 themesHorizontalListCell.smoothScrollToPosition(0);
                             } else if (themeInfo.currentAccentId != Theme.DEFALT_THEME_ACCENT_ID) {
-                                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needSetDayNightTheme, currentTheme, currentType == THEME_TYPE_NIGHT, null, Theme.DEFALT_THEME_ACCENT_ID);
+                                presenter.postGlobalNotification(NotificationCenter.needSetDayNightTheme, currentTheme, currentType == THEME_TYPE_NIGHT, null, Theme.DEFALT_THEME_ACCENT_ID);
                                 listAdapter.notifyItemChanged(themeAccentListRow);
                             } else {
                                 Theme.reloadWallpaper();
@@ -973,9 +984,8 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     menuItem.getIconView().getLocationInWindow(pos);
                     pos[0] += menuItem.getIconView().getMeasuredWidth() / 2;
                     pos[1] += menuItem.getIconView().getMeasuredHeight() / 2;
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needSetDayNightTheme, themeInfo, false, pos, -1, toDark, menuItem.getIconView());
+                    presenter.postGlobalNotification(NotificationCenter.needSetDayNightTheme, themeInfo, false, pos, -1, toDark, menuItem.getIconView());
                     updateRows(true);
-                    //AndroidUtilities.updateVisibleRows(listView);
                 }
             }
         });
@@ -1114,7 +1124,6 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     ((TextCheckCell) view).setChecked(SharedConfig.directShare);
                 }
             } else if (position == contactsReimportRow) {
-                //not implemented
             } else if (position == contactsSortRow) {
                 if (getParentActivity() == null) {
                     return;
@@ -1746,8 +1755,8 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                 }
                 if (which == 0) {
                     if (themeInfo.info == null) {
-                        getMessagesController().saveThemeToServer(themeInfo, null);
-                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needShareTheme, themeInfo, null);
+                        presenter.saveThemeToServer(themeInfo, null);
+                        presenter.postGlobalNotification(NotificationCenter.needShareTheme, themeInfo, null);
                     } else {
                         String link = "https://" + getMessagesController().linkPrefix + "/addtheme/" + themeInfo.info.slug;
                         showDialog(new ShareAlert(getParentActivity(), null, link, false, link, false));
@@ -1821,11 +1830,11 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                     builder1.setTitle(LocaleController.getString("DeleteThemeTitle", R.string.DeleteThemeTitle));
                     builder1.setMessage(LocaleController.getString("DeleteThemeAlert", R.string.DeleteThemeAlert));
                     builder1.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialogInterface, i) -> {
-                        MessagesController.getInstance(themeInfo.account).saveTheme(themeInfo, null, themeInfo == Theme.getCurrentNightTheme(), true);
-                        if (Theme.deleteTheme(themeInfo)) {
+                        presenter.saveTheme(themeInfo, null, themeInfo == Theme.getCurrentNightTheme(), true);
+                        if (presenter.deleteTheme(themeInfo)) {
                             parentLayout.rebuildAllFragmentViews(true, true);
                         }
-                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.themeListUpdated);
+                        presenter.postGlobalNotification(NotificationCenter.themeListUpdated);
                     });
                     builder1.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                     AlertDialog alertDialog = builder1.create();
@@ -1963,7 +1972,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                             }
 
                             if (currentTheme.currentAccentId != accent.id) {
-                                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needSetDayNightTheme, currentTheme, currentType == THEME_TYPE_NIGHT, null, accent.id);
+                                presenter.postGlobalNotification(NotificationCenter.needSetDayNightTheme, currentTheme, currentType == THEME_TYPE_NIGHT, null, accent.id);
                                 EmojiThemes.saveCustomTheme(currentTheme, accent.id);
                             } else {
                                 presentFragment(new ThemePreviewActivity(currentTheme, false, ThemePreviewActivity.SCREEN_TYPE_ACCENT_COLOR, accent.id >= 100, currentType == THEME_TYPE_NIGHT));
@@ -2014,8 +2023,8 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                                     AlertsCreator.createThemeCreateDialog(ThemeActivity.this, which == 1 ? 2 : 1, accent.parentTheme, accent);
                                 } else if (which == 1) {
                                     if (accent.info == null) {
-                                        getMessagesController().saveThemeToServer(accent.parentTheme, accent);
-                                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needShareTheme, accent.parentTheme, accent);
+                                        presenter.saveThemeToServer(accent.parentTheme, accent);
+                                        presenter.postGlobalNotification(NotificationCenter.needShareTheme, accent.parentTheme, accent);
                                     } else {
                                         String link = "https://" + getMessagesController().linkPrefix + "/addtheme/" + accent.info.slug;
                                         showDialog(new ShareAlert(getParentActivity(), null, link, false, link, false));
@@ -2032,7 +2041,7 @@ public class ThemeActivity extends BaseFragment implements NotificationCenter.No
                                     builder1.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialogInterface, i) -> {
                                         if (Theme.deleteThemeAccent(accentsAdapter.currentTheme, accent, true)) {
                                             Theme.refreshThemeColors();
-                                            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needSetDayNightTheme, Theme.getActiveTheme(), currentType == THEME_TYPE_NIGHT, null, -1);
+                                            presenter.postGlobalNotification(NotificationCenter.needSetDayNightTheme, Theme.getActiveTheme(), currentType == THEME_TYPE_NIGHT, null, -1);
                                         }
                                     });
                                     builder1.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
