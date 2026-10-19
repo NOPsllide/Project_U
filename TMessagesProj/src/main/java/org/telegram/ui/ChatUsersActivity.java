@@ -81,9 +81,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class ChatUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ChatUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, org.telegram.core.presenter.ChatUsersPresenter.ChatUsersView {
 
+    private org.telegram.core.presenter.ChatUsersPresenter presenter;
     private ListAdapter listViewAdapter;
+
     private StickerEmptyView emptyView;
     private RecyclerListView listView;
     private LinearLayoutManager layoutManager;
@@ -178,10 +180,10 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
     public final static int TYPE_USERS = 2;
     public final static int TYPE_KICKED = 3;
 
-    public final static int SELECT_TYPE_MEMBERS = 0; // "Subscribers" / "Members"
-    public final static int SELECT_TYPE_ADMIN = 1; // "Add Admin"
-    public final static int SELECT_TYPE_BLOCK = 2; // "Remove User"
-    public final static int SELECT_TYPE_EXCEPTION = 3; // "Add Exception"
+    public final static int SELECT_TYPE_MEMBERS = 0;
+    public final static int SELECT_TYPE_ADMIN = 1;
+    public final static int SELECT_TYPE_BLOCK = 2;
+    public final static int SELECT_TYPE_EXCEPTION = 3;
 
     private boolean openTransitionStarted;
     private FlickerLoadingView flickerLoadingView;
@@ -415,7 +417,8 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
         type = arguments.getInt("type");
         needOpenSearch = arguments.getBoolean("open_search");
         selectType = arguments.getInt("selectType");
-        currentChat = getMessagesController().getChat(chatId);
+        presenter = new org.telegram.core.presenter.ChatUsersPresenter(currentAccount);
+        currentChat = presenter.getChat(chatId);
         if (currentChat != null && currentChat.default_banned_rights != null) {
             defaultBannedRights.view_messages = currentChat.default_banned_rights.view_messages;
             defaultBannedRights.send_stickers = currentChat.default_banned_rights.send_stickers;
@@ -437,7 +440,11 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
     }
 
     private void updateRows() {
-        currentChat = getMessagesController().getChat(chatId);
+        if (presenter != null) {
+            currentChat = presenter.getChat(chatId);
+        } else {
+            currentChat = getMessagesController().getChat(chatId);
+        }
         if (currentChat == null) {
             return;
         }
@@ -563,7 +570,6 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                         addNewSectionRow = rowCount++;
                     }
                 } else {
-                    //restricted1SectionRow = rowCount++;
                     blockedEmptyRow = rowCount++;
                 }
             } else if (!firstLoaded) {
@@ -635,6 +641,10 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        if (presenter == null) {
+            presenter = new org.telegram.core.presenter.ChatUsersPresenter(currentAccount);
+        }
+        presenter.attachView(this);
         getNotificationCenter().addObserver(this, NotificationCenter.chatInfoDidLoad);
         loadChatParticipants(0, 200);
         return true;
@@ -643,6 +653,9 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         getNotificationCenter().removeObserver(this, NotificationCenter.chatInfoDidLoad);
     }
 
@@ -889,7 +902,7 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                                         chatParticipant.peer = new TLRPC.TL_peerChannel();
                                         chatParticipant.peer.channel_id = -uid;
                                     }
-                                    chatParticipant.date = getConnectionsManager().getCurrentTime();
+                                    chatParticipant.date = presenter != null ? presenter.getCurrentTime() : getConnectionsManager().getCurrentTime();
                                     chatParticipant.kicked_by = getAccountInstance().getUserConfig().clientUserId;
                                     info.kicked_count++;
                                     participants.add(chatParticipant);
@@ -925,7 +938,7 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
 
                             @Override
                             public void didSelectUser(long uid) {
-                                final TLRPC.User user = getMessagesController().getUser(uid);
+                                final TLRPC.User user = presenter != null ? presenter.getUser(uid) : getMessagesController().getUser(uid);
                                 if (user != null) {
                                     AndroidUtilities.runOnUIThread(() -> {
                                         if (BulletinFactory.canShowBulletin(ChatUsersActivity.this)) {
@@ -940,7 +953,7 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                                     TLRPC.TL_channelParticipantAdmin chatParticipant = new TLRPC.TL_channelParticipantAdmin();
                                     chatParticipant.peer = new TLRPC.TL_peerUser();
                                     chatParticipant.peer.user_id = user.id;
-                                    chatParticipant.date = getConnectionsManager().getCurrentTime();
+                                    chatParticipant.date = presenter != null ? presenter.getCurrentTime() : getConnectionsManager().getCurrentTime();
                                     chatParticipant.promoted_by = getAccountInstance().getUserConfig().clientUserId;
                                     participants.add(chatParticipant);
                                     participantsMap.put(user.id, chatParticipant);
@@ -1007,7 +1020,7 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                                                 channelParticipant1.inviter_id = getUserConfig().getClientUserId();
                                                 channelParticipant1.peer = new TLRPC.TL_peerUser();
                                                 channelParticipant1.peer.user_id = user.id;
-                                                channelParticipant1.date = getConnectionsManager().getCurrentTime();
+                                                channelParticipant1.date = presenter != null ? presenter.getCurrentTime() : getConnectionsManager().getCurrentTime();
                                                 array.add(0, channelParticipant1);
                                                 map.put(user.id, channelParticipant1);
                                             } else {
@@ -1060,24 +1073,45 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                     showDialog(new GigagroupConvertAlert(getParentActivity(), ChatUsersActivity.this) {
                         @Override
                         protected void onCovert() {
-                            getMessagesController().convertToGigaGroup(getParentActivity(), currentChat, ChatUsersActivity.this, (result) -> {
-                                if (result && parentLayout != null) {
-                                    BaseFragment editActivity = parentLayout.getFragmentStack().get(parentLayout.getFragmentStack().size() - 2);
-                                    if (editActivity instanceof ChatEditActivity) {
-                                        editActivity.removeSelfFromStack();
+                            if (presenter != null) {
+                                presenter.convertToGigaGroup(getParentActivity(), currentChat, ChatUsersActivity.this, (result) -> {
+                                    if (result && parentLayout != null) {
+                                        BaseFragment editActivity = parentLayout.getFragmentStack().get(parentLayout.getFragmentStack().size() - 2);
+                                        if (editActivity instanceof ChatEditActivity) {
+                                            editActivity.removeSelfFromStack();
 
-                                        Bundle args = new Bundle();
-                                        args.putLong("chat_id", chatId);
-                                        ChatEditActivity fragment = new ChatEditActivity(args);
-                                        fragment.setInfo(info);
-                                        parentLayout.addFragmentToStack(fragment, parentLayout.getFragmentStack().size() - 1);
-                                        finishFragment();
-                                        fragment.showConvertTooltip();
-                                    } else {
-                                        finishFragment();
+                                            Bundle args = new Bundle();
+                                            args.putLong("chat_id", chatId);
+                                            ChatEditActivity fragment = new ChatEditActivity(args);
+                                            fragment.setInfo(info);
+                                            parentLayout.addFragmentToStack(fragment, parentLayout.getFragmentStack().size() - 1);
+                                            finishFragment();
+                                            fragment.showConvertTooltip();
+                                        } else {
+                                            finishFragment();
+                                        }
                                     }
-                                }
-                            });
+                                });
+                            } else {
+                                getMessagesController().convertToGigaGroup(getParentActivity(), currentChat, ChatUsersActivity.this, (result) -> {
+                                    if (result && parentLayout != null) {
+                                        BaseFragment editActivity = parentLayout.getFragmentStack().get(parentLayout.getFragmentStack().size() - 2);
+                                        if (editActivity instanceof ChatEditActivity) {
+                                            editActivity.removeSelfFromStack();
+
+                                            Bundle args = new Bundle();
+                                            args.putLong("chat_id", chatId);
+                                            ChatEditActivity fragment = new ChatEditActivity(args);
+                                            fragment.setInfo(info);
+                                            parentLayout.addFragmentToStack(fragment, parentLayout.getFragmentStack().size() - 1);
+                                            finishFragment();
+                                            fragment.showConvertTooltip();
+                                        } else {
+                                            finishFragment();
+                                        }
+                                    }
+                                });
+                            }
                         }
 
                         @Override
@@ -1969,21 +2003,34 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
                         }
                     } else if (i == 1) {
                         TLRPC.TL_channels_editBanned req = new TLRPC.TL_channels_editBanned();
-                        req.participant = getMessagesController().getInputPeer(peerId);
-                        req.channel = getMessagesController().getInputChannel(chatId);
+                        req.participant = presenter != null ? presenter.getInputPeer(peerId) : getMessagesController().getInputPeer(peerId);
+                        req.channel = presenter != null ? presenter.getInputChannel(chatId) : getMessagesController().getInputChannel(chatId);
                         req.banned_rights = new TLRPC.TL_chatBannedRights();
-                        getConnectionsManager().sendRequest(req, (response, error) -> {
+                        org.telegram.tgnet.RequestDelegate callback = (response, error) -> {
                             if (response != null) {
                                 final TLRPC.Updates updates = (TLRPC.Updates) response;
-                                getMessagesController().processUpdates(updates, false);
+                                if (presenter != null) {
+                                    presenter.processUpdates(updates, false);
+                                } else {
+                                    getMessagesController().processUpdates(updates, false);
+                                }
                                 if (!updates.chats.isEmpty()) {
                                     AndroidUtilities.runOnUIThread(() -> {
                                         TLRPC.Chat chat = updates.chats.get(0);
-                                        getMessagesController().loadFullChat(chat.id, 0, true);
+                                        if (presenter != null) {
+                                            presenter.loadFullChat(chat.id, 0, true);
+                                        } else {
+                                            getMessagesController().loadFullChat(chat.id, 0, true);
+                                        }
                                     }, 1000);
                                 }
                             }
-                        });
+                        };
+                        if (presenter != null) {
+                            presenter.sendRequest(req, callback);
+                        } else {
+                            getConnectionsManager().sendRequest(req, callback);
+                        }
                     }
                     if (i == 0 && type == TYPE_BANNED || i == 1) {
                         removeParticipants(participant);
@@ -2173,27 +2220,49 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
             return;
         }
         if (currentChat.creator && !ChatObject.isChannel(currentChat) && selectedSlowmode != initialSlowmode && info != null) {
-            MessagesController.getInstance(currentAccount).convertToMegaGroup(getParentActivity(), chatId, this, param -> {
-                if (param != 0) {
-                    chatId = param;
-                    currentChat = MessagesController.getInstance(currentAccount).getChat(param);
-                    processDone();
-                }
-            });
+            if (presenter != null) {
+                presenter.convertToMegaGroup(getParentActivity(), chatId, this, param -> {
+                    if (param != 0) {
+                        chatId = param;
+                        currentChat = presenter.getChat(param);
+                        processDone();
+                    }
+                });
+            } else {
+                MessagesController.getInstance(currentAccount).convertToMegaGroup(getParentActivity(), chatId, this, param -> {
+                    if (param != 0) {
+                        chatId = param;
+                        currentChat = MessagesController.getInstance(currentAccount).getChat(param);
+                        processDone();
+                    }
+                });
+            }
             return;
         }
         String newBannedRights = ChatObject.getBannedRightsString(defaultBannedRights);
         if (!newBannedRights.equals(initialBannedRights)) {
-            getMessagesController().setDefaultBannedRole(chatId, defaultBannedRights, ChatObject.isChannel(currentChat), this);
-            TLRPC.Chat chat = getMessagesController().getChat(chatId);
-            if (chat != null) {
-                chat.default_banned_rights = defaultBannedRights;
+            if (presenter != null) {
+                presenter.setDefaultBannedRole(chatId, defaultBannedRights, ChatObject.isChannel(currentChat), this);
+                TLRPC.Chat chat = presenter.getChat(chatId);
+                if (chat != null) {
+                    chat.default_banned_rights = defaultBannedRights;
+                }
+            } else {
+                getMessagesController().setDefaultBannedRole(chatId, defaultBannedRights, ChatObject.isChannel(currentChat), this);
+                TLRPC.Chat chat = getMessagesController().getChat(chatId);
+                if (chat != null) {
+                    chat.default_banned_rights = defaultBannedRights;
+                }
             }
         }
         if (selectedSlowmode != initialSlowmode && info != null) {
             info.slowmode_seconds = getSecondsForIndex(selectedSlowmode);
             info.flags |= 131072;
-            getMessagesController().setChannelSlowMode(chatId, info.slowmode_seconds);
+            if (presenter != null) {
+                presenter.setChannelSlowMode(chatId, info.slowmode_seconds);
+            } else {
+                getMessagesController().setChannelSlowMode(chatId, info.slowmode_seconds);
+            }
         }
         finishFragment();
     }
@@ -2558,14 +2627,6 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
     public int getSelectType() {
         return selectType;
     }
-
-//    @Override
-//    public void onTransitionAnimationStart(boolean isOpen, boolean backward) {
-//        super.onTransitionAnimationStart(isOpen, backward);
-//        if (isOpen) {
-//            openTransitionStarted = true;
-//        }
-//    }
 
     @Override
     public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
@@ -3082,9 +3143,6 @@ public class ChatUsersActivity extends BaseFragment implements NotificationCente
 
         @Override
         public int getItemCount() {
-          /*  if (type == TYPE_KICKED && loadingUsers && !firstLoaded) {
-                return 0;
-            }*/
             return rowCount;
         }
 

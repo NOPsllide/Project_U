@@ -173,4 +173,27 @@ public interface ChatRepository {
     void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment);
 
     void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError);
+
+    void convertToGigaGroup(android.app.Activity activity, TLRPC.Chat chat, BaseFragment fragment, org.telegram.messenger.MessagesStorage.BooleanCallback callback);
+
+    void setDefaultBannedRole(long chatId, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment);
+
+    void setChannelSlowMode(long chatId, int slowmode);
+
+    int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate);
+
+    void bindRequestToGuid(int reqId, int classGuid);
+
+    void putUsers(ArrayList<TLRPC.User> users, boolean fromCache);
+
+    void putChats(ArrayList<TLRPC.Chat> chats, boolean fromCache);
+
+    void processUpdates(TLRPC.Updates updates, boolean isChannel);
+
+    TLRPC.InputPeer getInputPeer(long peerId);
+
+    TLRPC.InputChannel getInputChannel(long chatId);
+
+    void processLoadedAdminsResponse(long chatId, ArrayList<TLRPC.ChatParticipant> participants);
 }
+

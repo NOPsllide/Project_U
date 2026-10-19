@@ -621,4 +621,60 @@ public class ChatRepositoryImpl implements ChatRepository {
     public void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError) {
         MessagesController.getInstance(accountNum).addUserToChat(chatId, user, fwdCount, botHash, fragment, check, onFinish, onError);
     }
+
+    @Override
+    public void convertToGigaGroup(android.app.Activity activity, TLRPC.Chat chat, BaseFragment fragment, MessagesStorage.BooleanCallback callback) {
+        MessagesController.getInstance(accountNum).convertToGigaGroup(activity, chat, fragment, callback);
+    }
+
+    @Override
+    public void setDefaultBannedRole(long chatId, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment) {
+        MessagesController.getInstance(accountNum).setDefaultBannedRole(chatId, rights, isChannel, fragment);
+    }
+
+    @Override
+    public void setChannelSlowMode(long chatId, int slowmode) {
+        MessagesController.getInstance(accountNum).setChannelSlowMode(chatId, slowmode);
+    }
+
+    @Override
+    public int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate) {
+        return ConnectionsManager.getInstance(accountNum).sendRequest(request, delegate);
+    }
+
+    @Override
+    public void bindRequestToGuid(int reqId, int classGuid) {
+        ConnectionsManager.getInstance(accountNum).bindRequestToGuid(reqId, classGuid);
+    }
+
+    @Override
+    public void putUsers(ArrayList<TLRPC.User> users, boolean fromCache) {
+        MessagesController.getInstance(accountNum).putUsers(users, fromCache);
+    }
+
+    @Override
+    public void putChats(ArrayList<TLRPC.Chat> chats, boolean fromCache) {
+        MessagesController.getInstance(accountNum).putChats(chats, fromCache);
+    }
+
+    @Override
+    public void processUpdates(TLRPC.Updates updates, boolean isChannel) {
+        MessagesController.getInstance(accountNum).processUpdates(updates, isChannel);
+    }
+
+    @Override
+    public TLRPC.InputPeer getInputPeer(long peerId) {
+        return MessagesController.getInstance(accountNum).getInputPeer(peerId);
+    }
+
+    @Override
+    public TLRPC.InputChannel getInputChannel(long chatId) {
+        return MessagesController.getInstance(accountNum).getInputChannel(chatId);
+    }
+
+    @Override
+    public void processLoadedAdminsResponse(long chatId, ArrayList<TLRPC.ChatParticipant> participants) {
+        MessagesController.getInstance(accountNum).processLoadedAdminsResponse(chatId, participants);
+    }
 }
+
