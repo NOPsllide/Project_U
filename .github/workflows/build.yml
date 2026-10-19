@@ -33,13 +33,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Swap Space
-        run: |
-          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-
       - name: Set up Java JDK 17 (for Android SDK Manager)
         uses: actions/setup-java@v4
         with:
