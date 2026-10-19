@@ -16,3 +16,4 @@ Thumbs.db
 *.so
 *.o
 obj/
+.ccache_data/

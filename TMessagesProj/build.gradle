@@ -90,6 +90,17 @@ android {
             cmake {
                 version '3.10.2'
                 arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-16', "-j=16"
+                def ccacheExecutable = ""
+                try {
+                    def proc = "which ccache".execute()
+                    proc.waitFor()
+                    if (proc.exitValue() == 0) {
+                        ccacheExecutable = proc.text.trim()
+                    }
+                } catch (Exception ignored) {}
+                if (!ccacheExecutable.isEmpty()) {
+                    arguments "-DCMAKE_C_COMPILER_LAUNCHER=${ccacheExecutable}", "-DCMAKE_CXX_COMPILER_LAUNCHER=${ccacheExecutable}"
+                }
             }
         }
     }
