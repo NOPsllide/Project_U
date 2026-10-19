@@ -2752,7 +2752,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
             }
             TLRPC.TL_account_getWallPapers req = new TLRPC.TL_account_getWallPapers();
             req.hash = acc;
-            int reqId = (presenter != null ? presenter.sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            int reqId = presenter != null ? presenter.sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                 if (response instanceof TLRPC.TL_account_wallPapers) {
                     TLRPC.TL_account_wallPapers res = (TLRPC.TL_account_wallPapers) response;
                     patterns.clear();
@@ -2791,7 +2791,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                     TLRPC.TL_inputWallPaperSlug inputWallPaperSlug = new TLRPC.TL_inputWallPaperSlug();
                     inputWallPaperSlug.slug = accent.patternSlug;
                     req2.wallpaper = inputWallPaperSlug;
-                    int reqId2 = (presenter != null ? presenter.sendRequest(req2, (response1, error1) -> AndroidUtilities.runOnUIThread(() -> {
+                    int reqId2 = presenter != null ? presenter.sendRequest(req2, (response1, error1) -> AndroidUtilities.runOnUIThread(() -> {
                         if (response1 instanceof TLRPC.TL_wallPaper) {
                             TLRPC.TL_wallPaper wallPaper = (TLRPC.TL_wallPaper) response1;
                             if (wallPaper.pattern) {
