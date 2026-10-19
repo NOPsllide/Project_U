@@ -1,6 +1,7 @@
 package org.telegram.core.data.repository;
 
 import org.telegram.tgnet.TLRPC;
+import java.util.ArrayList;
 
 public interface UserRepository {
 
@@ -22,4 +23,14 @@ public interface UserRepository {
     void updateName(String firstName, String lastName);
 
     void cancelRequest(int requestId);
+
+    int checkUsername(String username, Callback<Boolean> callback);
+
+    int updateUsername(String username, int classGuid, Callback<TLRPC.User> callback);
+
+    void reorderUsernames(ArrayList<String> order);
+
+    int toggleUsername(String username, boolean active, Callback<Boolean> callback);
+
+    void updateUsernames(ArrayList<TLRPC.TL_username> usernames);
 }

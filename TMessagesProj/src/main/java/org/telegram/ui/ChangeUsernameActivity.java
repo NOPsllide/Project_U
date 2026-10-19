@@ -77,11 +77,14 @@ import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 
+import org.telegram.core.presenter.ChangeUsernamePresenter;
+
 import java.util.ArrayList;
 import java.util.List;
 
-public class ChangeUsernameActivity extends BaseFragment {
+public class ChangeUsernameActivity extends BaseFragment implements ChangeUsernamePresenter.ChangeUsernameView {
 
+    private ChangeUsernamePresenter presenter;
     private View doneButton;
 
     private RecyclerListView listView;
@@ -149,6 +152,64 @@ public class ChangeUsernameActivity extends BaseFragment {
     }
 
     @Override
+    public boolean onFragmentCreate() {
+        super.onFragmentCreate();
+        presenter = new ChangeUsernamePresenter(currentAccount);
+        presenter.attachView(this);
+        return true;
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onUsernameCheckResult(String username, boolean available, String error) {
+        checkReqId = 0;
+        if (lastCheckName != null && lastCheckName.equals(username)) {
+            if (available) {
+                if (statusTextView != null) {
+                    statusTextView.setText(LocaleController.formatString("UsernameAvailable", R.string.UsernameAvailable, username));
+                    statusTextView.setTag(Theme.key_windowBackgroundWhiteGreenText);
+                    statusTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGreenText));
+                    if (helpCell != null) {
+                        helpCell.update();
+                    }
+                }
+                lastNameAvailable = true;
+            } else {
+                if (statusTextView != null) {
+                    statusTextView.setText(LocaleController.getString("UsernameInUse", R.string.UsernameInUse));
+                    statusTextView.setTag(Theme.key_windowBackgroundWhiteRedText4);
+                    statusTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteRedText4));
+                    if (helpCell != null) {
+                        helpCell.update();
+                    }
+                }
+                lastNameAvailable = false;
+            }
+        }
+    }
+
+    @Override
+    public void onUsernameUpdated(TLRPC.User user) {
+        finishFragment();
+    }
+
+    @Override
+    public void onUsernameUpdateError(TLRPC.TL_error error) {
+        shakeIfOff();
+    }
+
+    @Override
+    public void onUsernameToggleResult(String username, boolean active, boolean success, String error) {
+    }
+
+    @Override
     public View createView(Context context) {
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
@@ -201,13 +262,6 @@ public class ChangeUsernameActivity extends BaseFragment {
                 if (!user.usernames.get(i).active)
                     usernames.add(user.usernames.get(i));
             }
-//            for (int i = 0; i < usernames.size(); ++i) {
-//                if (usernames.get(i) == null ||
-//                    username != null && username.equals(usernames.get(i).username) ||
-//                    usernames.get(i).editable) {
-//                    notEditableUsernames.add(usernames.remove(i--));
-//                }
-//            }
         }
 
         fragmentView = new FrameLayout(context);
@@ -658,7 +712,6 @@ public class ChangeUsernameActivity extends BaseFragment {
             field.setHintTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
             field.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
             field.setBackgroundDrawable(null);
-//            field.setLineColors(getThemedColor(Theme.key_windowBackgroundWhiteInputField), getThemedColor(Theme.key_windowBackgroundWhiteInputFieldActivated), getThemedColor(Theme.key_windowBackgroundWhiteRedText3));
             field.setMaxLines(1);
             field.setLines(1);
             field.setPadding(0, 0, 0, 0);
@@ -701,18 +754,6 @@ public class ChangeUsernameActivity extends BaseFragment {
                 public void afterTextChanged(Editable editable) {
                     if (username.startsWith("@")) {
                         username = username.substring(1);
-                    }
-                    if (username.length() > 0) {
-                        String url = "https://" + MessagesController.getInstance(currentAccount).linkPrefix + "/" + username;
-                        String text = LocaleController.formatString("UsernameHelpLink", R.string.UsernameHelpLink, url);
-                        int index = text.indexOf(url);
-                        SpannableStringBuilder textSpan = new SpannableStringBuilder(text);
-                        if (index >= 0) {
-                            textSpan.setSpan(new LinkSpan(url), index, index + url.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        }
-//                        helpTextView.setText(TextUtils.concat(infoText, "\n\n", textSpan));
-                    } else {
-//                        helpTextView.setText(infoText);
                     }
                 }
 
@@ -1265,17 +1306,6 @@ public class ChangeUsernameActivity extends BaseFragment {
         themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_ITEMSCOLOR, null, null, null, null, Theme.key_actionBarDefaultIcon));
         themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_TITLECOLOR, null, null, null, null, Theme.key_actionBarDefaultTitle));
         themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_actionBarDefaultSelector));
-
-//        themeDescriptions.add(new ThemeDescription(firstNameField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
-//        themeDescriptions.add(new ThemeDescription(firstNameField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText));
-//        themeDescriptions.add(new ThemeDescription(firstNameField, ThemeDescription.FLAG_BACKGROUNDFILTER, null, null, null, null, Theme.key_windowBackgroundWhiteInputField));
-//        themeDescriptions.add(new ThemeDescription(firstNameField, ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, null, null, null, null, Theme.key_windowBackgroundWhiteInputFieldActivated));
-
-//        themeDescriptions.add(new ThemeDescription(helpTextView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteGrayText8));
-//
-//        themeDescriptions.add(new ThemeDescription(checkTextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, null, null, null, null, Theme.key_windowBackgroundWhiteRedText4));
-//        themeDescriptions.add(new ThemeDescription(checkTextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, null, null, null, null, Theme.key_windowBackgroundWhiteGreenText));
-//        themeDescriptions.add(new ThemeDescription(checkTextView, ThemeDescription.FLAG_TEXTCOLOR | ThemeDescription.FLAG_CHECKTAG, null, null, null, null, Theme.key_windowBackgroundWhiteGrayText8));
 
         return themeDescriptions;
     }

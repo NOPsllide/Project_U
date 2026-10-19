@@ -1,12 +1,13 @@
 package org.telegram.core.data.repository;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.UserConfig;
-import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.FileLog;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import java.util.ArrayList;
 
 public class UserRepositoryImpl implements UserRepository {
 
@@ -100,5 +101,84 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public void cancelRequest(int requestId) {
         ConnectionsManager.getInstance(accountNum).cancelRequest(requestId, true);
+    }
+
+    @Override
+    public int checkUsername(String username, Callback<Boolean> callback) {
+        TLRPC.TL_account_checkUsername req = new TLRPC.TL_account_checkUsername();
+        req.username = username;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null && response instanceof TLRPC.TL_boolTrue) {
+                    callback.onSuccess(true);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }), ConnectionsManager.RequestFlagFailOnServerErrors);
+    }
+
+    @Override
+    public int updateUsername(String username, int classGuid, Callback<TLRPC.User> callback) {
+        TLRPC.TL_account_updateUsername req = new TLRPC.TL_account_updateUsername();
+        req.username = username;
+        NotificationCenter.getInstance(accountNum).postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_NAME);
+        int reqId = ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> {
+            if (error == null) {
+                TLRPC.User user = (TLRPC.User) response;
+                AndroidUtilities.runOnUIThread(() -> {
+                    ArrayList<TLRPC.User> users = new ArrayList<>();
+                    users.add(user);
+                    MessagesController.getInstance(accountNum).putUsers(users, false);
+                    MessagesStorage.getInstance(accountNum).putUsersAndChats(users, null, false, true);
+                    UserConfig.getInstance(accountNum).saveConfig(true);
+                    if (callback != null) {
+                        callback.onSuccess(user);
+                    }
+                });
+            } else {
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (callback != null) {
+                        callback.onError(error);
+                    }
+                });
+            }
+        }, ConnectionsManager.RequestFlagFailOnServerErrors);
+        ConnectionsManager.getInstance(accountNum).bindRequestToGuid(reqId, classGuid);
+        return reqId;
+    }
+
+    @Override
+    public void reorderUsernames(ArrayList<String> order) {
+        TLRPC.TL_account_reorderUsernames req = new TLRPC.TL_account_reorderUsernames();
+        req.order = order;
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (res, err) -> {});
+    }
+
+    @Override
+    public int toggleUsername(String username, boolean active, Callback<Boolean> callback) {
+        TLRPC.TL_account_toggleUsername req = new TLRPC.TL_account_toggleUsername();
+        req.username = username;
+        req.active = active;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (res, err) -> {
+            if (res instanceof TLRPC.TL_boolTrue) {
+                if (callback != null) {
+                    AndroidUtilities.runOnUIThread(() -> callback.onSuccess(true));
+                }
+            } else {
+                if (callback != null) {
+                    AndroidUtilities.runOnUIThread(() -> callback.onError(err));
+                }
+            }
+        }, ConnectionsManager.RequestFlagDoNotWaitFloodWait);
+    }
+
+    @Override
+    public void updateUsernames(ArrayList<TLRPC.TL_username> usernames) {
+        TLRPC.User user = MessagesController.getInstance(accountNum).getUser(UserConfig.getInstance(accountNum).getClientUserId());
+        if (user != null) {
+            user.usernames = usernames;
+            MessagesController.getInstance(accountNum).putUser(user, false, true);
+        }
     }
 }
