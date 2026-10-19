@@ -457,4 +457,57 @@ public class NotificationsRepositoryImpl implements NotificationsRepository {
         String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
         MessagesController.getNotificationsSettings(currentAccount).edit().putInt("notify2_" + key, 0).apply();
     }
+
+    @Override
+    public boolean isGlobalNotificationsEnabled(int currentType) {
+        return NotificationsController.getInstance(currentAccount).isGlobalNotificationsEnabled(currentType);
+    }
+
+    @Override
+    public void setGlobalNotificationsEnabled(int currentType, int value) {
+        NotificationsController.getInstance(currentAccount).setGlobalNotificationsEnabled(currentType, value);
+    }
+
+    @Override
+    public void updateServerNotificationsSettings(int currentType) {
+        NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(currentType);
+    }
+
+    @Override
+    public void updateServerNotificationsSettings(long dialogId, int topicId, boolean resetSound) {
+        NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(dialogId, topicId, resetSound);
+    }
+
+    @Override
+    public void muteDialog(long did, int topicId, boolean mute) {
+        NotificationsController.getInstance(currentAccount).muteDialog(did, topicId, mute);
+    }
+
+    @Override
+    public void muteUntil(long did, int topicId, int timeInSeconds) {
+        NotificationsController.getInstance(currentAccount).muteUntil(did, topicId, timeInSeconds);
+    }
+
+    @Override
+    public void deleteAllExceptions(int currentType, ArrayList<NotificationsSettingsActivity.NotificationException> exceptions, int topicId) {
+        if (exceptions == null || exceptions.isEmpty()) {
+            return;
+        }
+        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+        SharedPreferences.Editor editor = preferences.edit();
+        for (int a = 0, N = exceptions.size(); a < N; a++) {
+            NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
+            editor.remove("notify2_" + exception.did).remove("custom_" + exception.did);
+            MessagesStorage.getInstance(currentAccount).setDialogFlags(exception.did, 0);
+            TLRPC.Dialog dialog = MessagesController.getInstance(currentAccount).dialogs_dict.get(exception.did);
+            if (dialog != null) {
+                dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
+            }
+        }
+        editor.commit();
+        for (int a = 0, N = exceptions.size(); a < N; a++) {
+            NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
+            NotificationsController.getInstance(currentAccount).updateServerNotificationsSettings(exception.did, topicId, false);
+        }
+    }
 }

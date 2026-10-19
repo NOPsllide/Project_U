@@ -45,4 +45,18 @@ public interface NotificationsRepository {
     void applyCustomKey(long dialogId, int topicId);
 
     void resetNotify2Key(long dialogId, int topicId);
+
+    boolean isGlobalNotificationsEnabled(int currentType);
+
+    void setGlobalNotificationsEnabled(int currentType, int value);
+
+    void updateServerNotificationsSettings(int currentType);
+
+    void updateServerNotificationsSettings(long dialogId, int topicId, boolean resetSound);
+
+    void muteDialog(long did, int topicId, boolean mute);
+
+    void muteUntil(long did, int topicId, int timeInSeconds);
+
+    void deleteAllExceptions(int currentType, ArrayList<NotificationsSettingsActivity.NotificationException> exceptions, int topicId);
 }

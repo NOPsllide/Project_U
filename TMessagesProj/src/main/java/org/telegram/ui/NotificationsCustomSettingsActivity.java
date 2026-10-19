@@ -74,9 +74,11 @@ import org.telegram.ui.Components.RecyclerListView;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import org.telegram.core.presenter.NotificationsCustomSettingsPresenter;
 
-public class NotificationsCustomSettingsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class NotificationsCustomSettingsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, NotificationsCustomSettingsPresenter.NotificationsCustomSettingsView {
 
+    private NotificationsCustomSettingsPresenter presenter;
     private RecyclerListView listView;
     private ListAdapter adapter;
     private EmptyTextProgressView emptyView;
@@ -131,8 +133,20 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
 
     @Override
     public boolean onFragmentCreate() {
+        if (presenter == null) {
+            presenter = new NotificationsCustomSettingsPresenter(currentAccount);
+            presenter.attachView(this);
+        }
         updateRows(true);
         return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -296,7 +310,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                                 BulletinFactory.createMuteBulletin(NotificationsCustomSettingsActivity.this, NotificationsController.SETTING_MUTE_UNMUTE, timeInSeconds, getResourceProvider()).show();
                             }
                         } else {
-                            getNotificationsController().muteUntil(did, topicId, timeInSeconds);
+                            presenter.muteUntil(did, topicId, timeInSeconds);
                             if (BulletinFactory.canShowBulletin(NotificationsCustomSettingsActivity.this)) {
                                 BulletinFactory.createMuteBulletin(NotificationsCustomSettingsActivity.this, NotificationsController.SETTING_MUTE_CUSTOM, timeInSeconds, getResourceProvider()).show();
                             }
@@ -326,7 +340,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                     @Override
                     public void toggleMute() {
                         boolean muted = getMessagesController().isDialogMuted(did, topicId);
-                        getNotificationsController().muteDialog(did, topicId, !muted);
+                        presenter.muteDialog(did, topicId, !muted);
                         BulletinFactory.createMuteBulletin(NotificationsCustomSettingsActivity.this, getMessagesController().isDialogMuted(did, topicId), null).show();
                         update();
                     }
@@ -420,23 +434,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                 builder.setTitle(LocaleController.getString("NotificationsDeleteAllExceptionTitle", R.string.NotificationsDeleteAllExceptionTitle));
                 builder.setMessage(LocaleController.getString("NotificationsDeleteAllExceptionAlert", R.string.NotificationsDeleteAllExceptionAlert));
                 builder.setPositiveButton(LocaleController.getString("Delete", R.string.Delete), (dialogInterface, i) -> {
-                    SharedPreferences preferences = getNotificationsSettings();
-                    SharedPreferences.Editor editor = preferences.edit();
-                    for (int a = 0, N = exceptions.size(); a < N; a++) {
-                        NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
-                        editor.remove("notify2_" + exception.did).remove("custom_" + exception.did);
-                        getMessagesStorage().setDialogFlags(exception.did, 0);
-                        TLRPC.Dialog dialog = getMessagesController().dialogs_dict.get(exception.did);
-                        if (dialog != null) {
-                            dialog.notify_settings = new TLRPC.TL_peerNotifySettings();
-                        }
-                    }
-                    editor.commit();
-                    for (int a = 0, N = exceptions.size(); a < N; a++) {
-                        NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
-                        getNotificationsController().updateServerNotificationsSettings(exception.did, topicId, false);
-                    }
-
+                    presenter.deleteAllExceptions(currentType, exceptions, topicId);
                     exceptions.clear();
                     exceptionsDict.clear();
                     updateRows(true);
@@ -450,12 +448,12 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                     button.setTextColor(Theme.getColor(Theme.key_dialogTextRed2));
                 }
             } else if (position == alertRow) {
-                enabled = getNotificationsController().isGlobalNotificationsEnabled(currentType);
+                enabled = presenter.isGlobalNotificationsEnabled(currentType);
 
                 NotificationsCheckCell checkCell = (NotificationsCheckCell) view;
                 RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(position);
                 if (!enabled) {
-                    getNotificationsController().setGlobalNotificationsEnabled(currentType, 0);
+                    presenter.setGlobalNotificationsEnabled(currentType, 0);
                     checkCell.setChecked(true);
                     if (holder != null) {
                         adapter.onBindViewHolder(holder, position);
@@ -481,7 +479,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                         } else {
                             iconType = 2;
                         }
-                        checkCell.setChecked(getNotificationsController().isGlobalNotificationsEnabled(currentType), iconType);
+                        checkCell.setChecked(presenter.isGlobalNotificationsEnabled(currentType), iconType);
                         if (holder != null) {
                             adapter.onBindViewHolder(holder, position);
                         }
@@ -505,7 +503,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                     editor.putBoolean("EnablePreviewChannel", !enabled);
                 }
                 editor.commit();
-                getNotificationsController().updateServerNotificationsSettings(currentType);
+                presenter.updateServerNotificationsSettings(currentType);
             } else if (position == messageSoundRow) {
                 if (!view.isEnabled()) {
                     return;
@@ -514,39 +512,6 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
                     Bundle bundle = new Bundle();
                     bundle.putInt("type", currentType);
                     presentFragment(new NotificationsSoundActivity(bundle, getResourceProvider()));
-//                    SharedPreferences preferences = getNotificationsSettings();
-//                    Intent tmpIntent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
-//                    tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
-//                    tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
-//                    tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
-//                    tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION));
-//                    Uri currentSound = null;
-//
-//                    String defaultPath = null;
-//                    Uri defaultUri = Settings.System.DEFAULT_NOTIFICATION_URI;
-//                    if (defaultUri != null) {
-//                        defaultPath = defaultUri.getPath();
-//                    }
-//
-//                    String path;
-//                    if (currentType == NotificationsController.TYPE_PRIVATE) {
-//                        path = preferences.getString("GlobalSoundPath", defaultPath);
-//                    } else if (currentType == NotificationsController.TYPE_GROUP) {
-//                        path = preferences.getString("GroupSoundPath", defaultPath);
-//                    } else {
-//                        path = preferences.getString("ChannelSoundPath", defaultPath);
-//                    }
-//
-//                    if (path != null && !path.equals("NoSound")) {
-//                        if (path.equals(defaultPath)) {
-//                            currentSound = defaultUri;
-//                        } else {
-//                            currentSound = Uri.parse(path);
-//                        }
-//                    }
-//
-//                    tmpIntent.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, currentSound);
-//                    startActivityForResult(tmpIntent, position);
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -627,7 +592,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
         }
         int count = listView.getChildCount();
         ArrayList<Animator> animators = new ArrayList<>();
-        boolean enabled = getNotificationsController().isGlobalNotificationsEnabled(currentType);
+        boolean enabled = presenter.isGlobalNotificationsEnabled(currentType);
         for (int a = 0; a < count; a++) {
             View child = listView.getChildAt(a);
             RecyclerListView.Holder holder = (RecyclerListView.Holder) listView.getChildViewHolder(child);
@@ -676,149 +641,30 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
     }
 
     private void loadExceptions() {
-        getMessagesStorage().getStorageQueue().postRunnable(() -> {
-            ArrayList<NotificationsSettingsActivity.NotificationException> usersResult = new ArrayList<>();
-            ArrayList<NotificationsSettingsActivity.NotificationException> chatsResult = new ArrayList<>();
-            ArrayList<NotificationsSettingsActivity.NotificationException> channelsResult = new ArrayList<>();
-            LongSparseArray<NotificationsSettingsActivity.NotificationException> waitingForLoadExceptions = new LongSparseArray<>();
+        if (presenter == null) {
+            presenter = new NotificationsCustomSettingsPresenter(currentAccount);
+            presenter.attachView(this);
+        }
+        presenter.loadExceptions();
+    }
 
-            ArrayList<Long> usersToLoad = new ArrayList<>();
-            ArrayList<Long> chatsToLoad = new ArrayList<>();
-            ArrayList<Integer> encryptedChatsToLoad = new ArrayList<>();
-
-            ArrayList<TLRPC.User> users = new ArrayList<>();
-            ArrayList<TLRPC.Chat> chats = new ArrayList<>();
-            ArrayList<TLRPC.EncryptedChat> encryptedChats = new ArrayList<>();
-            long selfId = getUserConfig().clientUserId;
-
-            SharedPreferences preferences = getNotificationsSettings();
-            Map<String, ?> values = preferences.getAll();
-            for (Map.Entry<String, ?> entry : values.entrySet()) {
-                String key = entry.getKey();
-                if (key.startsWith("notify2_")) {
-                    key = key.replace("notify2_", "");
-
-                    long did = Utilities.parseLong(key);
-                    if (did != 0 && did != selfId) {
-                        NotificationsSettingsActivity.NotificationException exception = new NotificationsSettingsActivity.NotificationException();
-                        exception.did = did;
-                        exception.hasCustom = preferences.getBoolean("custom_" + did, false);
-                        exception.notify = (Integer) entry.getValue();
-                        if (exception.notify != 0) {
-                            Integer time = (Integer) values.get("notifyuntil_" + key);
-                            if (time != null) {
-                                exception.muteUntil = time;
-                            }
-                        }
-
-                        if (DialogObject.isEncryptedDialog(did)) {
-                            int encryptedChatId = DialogObject.getEncryptedChatId(did);
-                            TLRPC.EncryptedChat encryptedChat = getMessagesController().getEncryptedChat(encryptedChatId);
-                            if (encryptedChat == null) {
-                                encryptedChatsToLoad.add(encryptedChatId);
-                                waitingForLoadExceptions.put(did, exception);
-                            } else {
-                                TLRPC.User user = getMessagesController().getUser(encryptedChat.user_id);
-                                if (user == null) {
-                                    usersToLoad.add(encryptedChat.user_id);
-                                    waitingForLoadExceptions.put(encryptedChat.user_id, exception);
-                                } else if (user.deleted) {
-                                    continue;
-                                }
-                            }
-                            usersResult.add(exception);
-                        } else if (DialogObject.isUserDialog(did)) {
-                            TLRPC.User user = getMessagesController().getUser(did);
-                            if (user == null) {
-                                usersToLoad.add(did);
-                                waitingForLoadExceptions.put(did, exception);
-                            } else if (user.deleted) {
-                                continue;
-                            }
-                            usersResult.add(exception);
-                        } else {
-                            TLRPC.Chat chat = getMessagesController().getChat(-did);
-                            if (chat == null) {
-                                chatsToLoad.add(-did);
-                                waitingForLoadExceptions.put(did, exception);
-                                continue;
-                            } else if (chat.left || chat.kicked || chat.migrated_to != null) {
-                                continue;
-                            }
-                            if (ChatObject.isChannel(chat) && !chat.megagroup) {
-                                channelsResult.add(exception);
-                            } else {
-                                chatsResult.add(exception);
-                            }
-                        }
-                    }
-                }
-            }
-            if (waitingForLoadExceptions.size() != 0) {
-                try {
-                    if (!encryptedChatsToLoad.isEmpty()) {
-                        getMessagesStorage().getEncryptedChatsInternal(TextUtils.join(",", encryptedChatsToLoad), encryptedChats, usersToLoad);
-                    }
-                    if (!usersToLoad.isEmpty()) {
-                        getMessagesStorage().getUsersInternal(TextUtils.join(",", usersToLoad), users);
-                    }
-                    if (!chatsToLoad.isEmpty()) {
-                        getMessagesStorage().getChatsInternal(TextUtils.join(",", chatsToLoad), chats);
-                    }
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-                for (int a = 0, size = chats.size(); a < size; a++) {
-                    TLRPC.Chat chat = chats.get(a);
-                    if (chat.left || chat.kicked || chat.migrated_to != null) {
-                        continue;
-                    }
-                    NotificationsSettingsActivity.NotificationException exception = waitingForLoadExceptions.get(-chat.id);
-                    waitingForLoadExceptions.remove(-chat.id);
-
-                    if (exception != null) {
-                        if (ChatObject.isChannel(chat) && !chat.megagroup) {
-                            channelsResult.add(exception);
-                        } else {
-                            chatsResult.add(exception);
-                        }
-                    }
-                }
-                for (int a = 0, size = users.size(); a < size; a++) {
-                    TLRPC.User user = users.get(a);
-                    if (user.deleted) {
-                        continue;
-                    }
-                    waitingForLoadExceptions.remove(user.id);
-                }
-                for (int a = 0, size = encryptedChats.size(); a < size; a++) {
-                    TLRPC.EncryptedChat encryptedChat = encryptedChats.get(a);
-                    waitingForLoadExceptions.remove(DialogObject.makeEncryptedDialogId(encryptedChat.id));
-                }
-                for (int a = 0, size = waitingForLoadExceptions.size(); a < size; a++) {
-                    long did = waitingForLoadExceptions.keyAt(a);
-                    if (DialogObject.isChatDialog(did)) {
-                        chatsResult.remove(waitingForLoadExceptions.valueAt(a));
-                        channelsResult.remove(waitingForLoadExceptions.valueAt(a));
-                    } else {
-                        usersResult.remove(waitingForLoadExceptions.valueAt(a));
-                    }
-                }
-            }
-            AndroidUtilities.runOnUIThread(() -> {
-                getMessagesController().putUsers(users, true);
-                getMessagesController().putChats(chats, true);
-                getMessagesController().putEncryptedChats(encryptedChats, true);
-                if (currentType == NotificationsController.TYPE_PRIVATE) {
-                    exceptions = usersResult;
-                } else if (currentType == NotificationsController.TYPE_GROUP) {
-                    exceptions = chatsResult;
-                } else {
-                    exceptions = channelsResult;
-                }
-                updateRows(true);
-            });
-        });
+    @Override
+    public void onExceptionsLoaded(ArrayList<NotificationsSettingsActivity.NotificationException> usersResult,
+                                   ArrayList<NotificationsSettingsActivity.NotificationException> chatsResult,
+                                   ArrayList<NotificationsSettingsActivity.NotificationException> channelsResult) {
+        if (currentType == NotificationsController.TYPE_PRIVATE) {
+            exceptions = usersResult;
+        } else if (currentType == NotificationsController.TYPE_GROUP) {
+            exceptions = chatsResult;
+        } else {
+            exceptions = channelsResult;
+        }
+        exceptionsDict.clear();
+        for (int a = 0, N = exceptions.size(); a < N; a++) {
+            NotificationsSettingsActivity.NotificationException exception = exceptions.get(a);
+            exceptionsDict.put(exception.did, exception);
+        }
+        updateRows(true);
     }
 
     private void updateRows(boolean notify) {
@@ -928,7 +774,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
             }
             getNotificationsController().deleteNotificationChannelGlobal(currentType);
             editor.commit();
-            getNotificationsController().updateServerNotificationsSettings(currentType);
+            presenter.updateServerNotificationsSettings(currentType);
             RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(requestCode);
             if (holder != null) {
                 adapter.onBindViewHolder(holder, requestCode);
@@ -953,10 +799,15 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.notificationsSettingsUpdated) {
-            if (adapter != null) {
-                adapter.notifyDataSetChanged();
-            }
+        if (presenter != null) {
+            presenter.handleNotification(id, args);
+        }
+    }
+
+    @Override
+    public void onNotificationSettingsUpdated() {
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
         }
     }
 
@@ -1448,7 +1299,7 @@ public class NotificationsCustomSettingsActivity extends BaseFragment implements
             if (exceptions == null || !exceptions.isEmpty()) {
                 return;
             }
-            boolean enabled = getNotificationsController().isGlobalNotificationsEnabled(currentType);
+            boolean enabled = presenter.isGlobalNotificationsEnabled(currentType);
             switch (holder.getItemViewType()) {
                 case 0: {
                     HeaderCell headerCell = (HeaderCell) holder.itemView;
