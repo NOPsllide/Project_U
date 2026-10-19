@@ -75,10 +75,13 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.Premium.LimitReachedBottomSheet;
 import org.telegram.ui.Components.RecyclerListView;
 
+import org.telegram.core.presenter.FilterUsersPresenter;
+
 import java.util.ArrayList;
 
-public class FilterUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, View.OnClickListener {
+public class FilterUsersActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, View.OnClickListener, FilterUsersPresenter.FilterUsersView {
 
+    private FilterUsersPresenter presenter;
     private ScrollView scrollView;
     private SpansContainer spansContainer;
     private EditTextBoldCursor editText;
@@ -92,8 +95,6 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
     private int selectedCount;
 
     private int containerHeight;
-
-    //private boolean doneButtonVisible;
 
     private boolean isInclude;
     private int filterFlags;
@@ -138,10 +139,6 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
         @Override
         public void getItemOffsets(android.graphics.Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
             super.getItemOffsets(outRect, view, parent, state);
-            /*int position = parent.getChildAdapterPosition(view);
-            if (position == 0 || !searching && position == 1) {
-                return;
-            }*/
             outRect.top = 1;
         }
     }
@@ -346,6 +343,8 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new FilterUsersPresenter(currentAccount);
+        presenter.attachView(this);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.contactsDidLoad);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.updateInterfaces);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatDidCreated);
@@ -355,6 +354,9 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.contactsDidLoad);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.updateInterfaces);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatDidCreated);
@@ -541,7 +543,6 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
                 return false;
             }
         });
-        //editText.setOnEditorActionListener((v, actionId, event) -> actionId == EditorInfo.IME_ACTION_DONE && onDonePressed(true));
         editText.setOnKeyListener(new View.OnKeyListener() {
 
             private boolean wasEmpty;
@@ -751,10 +752,6 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
         }
         frameLayout.addView(floatingButton);
         floatingButton.setOnClickListener(v -> onDonePressed(true));
-        /*floatingButton.setVisibility(View.INVISIBLE);
-        floatingButton.setScaleX(0.0f);
-        floatingButton.setScaleY(0.0f);
-        floatingButton.setAlpha(0.0f);*/
         floatingButton.setContentDescription(LocaleController.getString("Next", R.string.Next));
 
         for (int position = 1, N = (isInclude ? 5 : 3); position <= N; position++) {
@@ -829,29 +826,39 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.contactsDidLoad) {
-            if (emptyView != null) {
-                emptyView.showTextView();
-            }
-            if (adapter != null) {
-                adapter.notifyDataSetChanged();
-            }
-        } else if (id == NotificationCenter.updateInterfaces) {
-            if (listView != null) {
-                int mask = (Integer) args[0];
-                int count = listView.getChildCount();
-                if ((mask & MessagesController.UPDATE_MASK_AVATAR) != 0 || (mask & MessagesController.UPDATE_MASK_NAME) != 0 || (mask & MessagesController.UPDATE_MASK_STATUS) != 0) {
-                    for (int a = 0; a < count; a++) {
-                        View child = listView.getChildAt(a);
-                        if (child instanceof GroupCreateUserCell) {
-                            ((GroupCreateUserCell) child).update(mask);
-                        }
+        if (presenter != null) {
+            presenter.handleNotification(id, args);
+        }
+    }
+
+    @Override
+    public void onContactsLoaded() {
+        if (emptyView != null) {
+            emptyView.showTextView();
+        }
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onUpdateInterfaces(int mask) {
+        if (listView != null) {
+            int count = listView.getChildCount();
+            if ((mask & MessagesController.UPDATE_MASK_AVATAR) != 0 || (mask & MessagesController.UPDATE_MASK_NAME) != 0 || (mask & MessagesController.UPDATE_MASK_STATUS) != 0) {
+                for (int a = 0; a < count; a++) {
+                    View child = listView.getChildAt(a);
+                    if (child instanceof GroupCreateUserCell) {
+                        ((GroupCreateUserCell) child).update(mask);
                     }
                 }
             }
-        } else if (id == NotificationCenter.chatDidCreated) {
-            removeSelfFromStack();
         }
+    }
+
+    @Override
+    public void onChatCreated() {
+        removeSelfFromStack();
     }
 
     @Keep
@@ -920,9 +927,6 @@ public class FilterUsersActivity extends BaseFragment implements NotificationCen
     }
 
     private boolean onDonePressed(boolean alert) {
-        /*if (!doneButtonVisible || selectedContacts.size() == 0) {
-            return false;
-        }*/
         ArrayList<Long> result = new ArrayList<>();
         for (int a = 0; a < selectedContacts.size(); a++) {
             long uid = selectedContacts.keyAt(a);
