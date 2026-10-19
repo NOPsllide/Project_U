@@ -439,4 +439,126 @@ public class ChatRepositoryImpl implements ChatRepository {
     public int getMaxBroadcastCount() {
         return MessagesController.getInstance(accountNum).maxBroadcastCount;
     }
+
+    @Override
+    public int loadAdminsWithInvites(long chatId, AdminsWithInvitesCallback callback) {
+        TLRPC.TL_messages_getAdminsWithInvites req = new TLRPC.TL_messages_getAdminsWithInvites();
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null && response instanceof TLRPC.TL_messages_chatAdminsWithInvites) {
+                    callback.onSuccess((TLRPC.TL_messages_chatAdminsWithInvites) response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int loadExportedChatInvites(long chatId, long adminId, boolean revoked, String offsetLink, int offsetDate, ExportedChatInvitesCallback callback) {
+        TLRPC.TL_messages_getExportedChatInvites req = new TLRPC.TL_messages_getExportedChatInvites();
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        if (adminId == UserConfig.getInstance(accountNum).getClientUserId()) {
+            req.admin_id = MessagesController.getInstance(accountNum).getInputUser(UserConfig.getInstance(accountNum).getCurrentUser());
+        } else {
+            req.admin_id = MessagesController.getInstance(accountNum).getInputUser(adminId);
+        }
+        req.revoked = revoked;
+        if (offsetLink != null) {
+            req.flags |= 4;
+            req.offset_link = offsetLink;
+            req.offset_date = offsetDate;
+        }
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null && response instanceof TLRPC.TL_messages_exportedChatInvites) {
+                    callback.onSuccess((TLRPC.TL_messages_exportedChatInvites) response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public void deleteRevokedExportedChatInvites(long chatId, long adminId, Runnable onComplete) {
+        TLRPC.TL_messages_deleteRevokedExportedChatInvites req = new TLRPC.TL_messages_deleteRevokedExportedChatInvites();
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        if (adminId == UserConfig.getInstance(accountNum).getClientUserId()) {
+            req.admin_id = MessagesController.getInstance(accountNum).getInputUser(UserConfig.getInstance(accountNum).getCurrentUser());
+        } else {
+            req.admin_id = MessagesController.getInstance(accountNum).getInputUser(adminId);
+        }
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null && onComplete != null) {
+                onComplete.run();
+            }
+        }));
+    }
+
+    @Override
+    public void deleteExportedChatInvite(long chatId, String link, Runnable onComplete) {
+        TLRPC.TL_messages_deleteExportedChatInvite req = new TLRPC.TL_messages_deleteExportedChatInvite();
+        req.link = link;
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null && onComplete != null) {
+                onComplete.run();
+            }
+        }));
+    }
+
+    @Override
+    public void revokeExportedChatInvite(long chatId, String link, RevokeLinkCallback callback) {
+        TLRPC.TL_messages_editExportedChatInvite req = new TLRPC.TL_messages_editExportedChatInvite();
+        req.link = link;
+        req.revoked = true;
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int revokePermanentInvite(long chatId, LinkCallback callback) {
+        TLRPC.TL_messages_exportChatInvite req = new TLRPC.TL_messages_exportChatInvite();
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        req.legacy_revoke_permanent = true;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public void saveChatLinksCount(long chatId, int count) {
+        MessagesStorage.getInstance(accountNum).saveChatLinksCount(chatId, count);
+    }
+
+    @Override
+    public TLRPC.TL_messages_stickerSet getStickerSetByName(String name) {
+        return MediaDataController.getInstance(accountNum).getStickerSetByName(name);
+    }
+
+    @Override
+    public TLRPC.TL_messages_stickerSet getStickerSetByEmojiOrName(String name) {
+        return MediaDataController.getInstance(accountNum).getStickerSetByEmojiOrName(name);
+    }
+
+    @Override
+    public void loadStickersByEmojiOrName(String name, boolean isDice, boolean forCurrentAccount) {
+        MediaDataController.getInstance(accountNum).loadStickersByEmojiOrName(name, isDice, forCurrentAccount);
+    }
 }

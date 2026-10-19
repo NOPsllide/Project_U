@@ -114,4 +114,39 @@ public interface ChatRepository {
     int getMaxMegagroupCount();
 
     int getMaxBroadcastCount();
+
+    interface AdminsWithInvitesCallback {
+        void onSuccess(TLRPC.TL_messages_chatAdminsWithInvites response);
+        void onError(TLRPC.TL_error error);
+    }
+
+    interface ExportedChatInvitesCallback {
+        void onSuccess(TLRPC.TL_messages_exportedChatInvites response);
+        void onError(TLRPC.TL_error error);
+    }
+
+    interface RevokeLinkCallback {
+        void onSuccess(TLObject response);
+        void onError(TLRPC.TL_error error);
+    }
+
+    int loadAdminsWithInvites(long chatId, AdminsWithInvitesCallback callback);
+
+    int loadExportedChatInvites(long chatId, long adminId, boolean revoked, String offsetLink, int offsetDate, ExportedChatInvitesCallback callback);
+
+    void deleteRevokedExportedChatInvites(long chatId, long adminId, Runnable onComplete);
+
+    void deleteExportedChatInvite(long chatId, String link, Runnable onComplete);
+
+    void revokeExportedChatInvite(long chatId, String link, RevokeLinkCallback callback);
+
+    int revokePermanentInvite(long chatId, LinkCallback callback);
+
+    void saveChatLinksCount(long chatId, int count);
+
+    TLRPC.TL_messages_stickerSet getStickerSetByName(String name);
+
+    TLRPC.TL_messages_stickerSet getStickerSetByEmojiOrName(String name);
+
+    void loadStickersByEmojiOrName(String name, boolean isDice, boolean forCurrentAccount);
 }
