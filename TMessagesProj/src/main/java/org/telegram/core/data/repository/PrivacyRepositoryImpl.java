@@ -8,6 +8,8 @@ import org.telegram.messenger.support.LongSparseIntArray;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
+import java.util.ArrayList;
+
 public class PrivacyRepositoryImpl implements PrivacyRepository {
 
     private final int accountNum;
@@ -134,5 +136,46 @@ public class PrivacyRepositoryImpl implements PrivacyRepository {
         req.settings.flags |= 1;
         req.settings.archive_and_mute_new_noncontact_peers = archiveAndMute;
         ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> {});
+    }
+
+    @Override
+    public ArrayList<TLRPC.PrivacyRule> getPrivacyRules(int rulesType) {
+        return ContactsController.getInstance(accountNum).getPrivacyRules(rulesType);
+    }
+
+    @Override
+    public void setPrivacyRules(TLRPC.TL_account_setPrivacy req, int rulesType, SetPrivacyCallback callback) {
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null && response instanceof TLRPC.TL_account_privacyRules) {
+                TLRPC.TL_account_privacyRules privacyRules = (TLRPC.TL_account_privacyRules) response;
+                MessagesController.getInstance(accountNum).putUsers(privacyRules.users, false);
+                MessagesController.getInstance(accountNum).putChats(privacyRules.chats, false);
+                ContactsController.getInstance(accountNum).setPrivacyRules(privacyRules.rules, rulesType);
+                if (callback != null) {
+                    callback.onComplete(true, null);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onComplete(false, error);
+                }
+            }
+        }), ConnectionsManager.RequestFlagFailOnServerErrors);
+    }
+
+    @Override
+    public void setPhoneAddedPrivacyRules(int currentSubType) {
+        TLRPC.TL_account_setPrivacy req2 = new TLRPC.TL_account_setPrivacy();
+        req2.key = new TLRPC.TL_inputPrivacyKeyAddedByPhone();
+        if (currentSubType == 0) {
+            req2.rules.add(new TLRPC.TL_inputPrivacyValueAllowAll());
+        } else {
+            req2.rules.add(new TLRPC.TL_inputPrivacyValueAllowContacts());
+        }
+        ConnectionsManager.getInstance(accountNum).sendRequest(req2, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (error == null && response instanceof TLRPC.TL_account_privacyRules) {
+                TLRPC.TL_account_privacyRules privacyRules = (TLRPC.TL_account_privacyRules) response;
+                ContactsController.getInstance(accountNum).setPrivacyRules(privacyRules.rules, ContactsController.PRIVACY_RULES_TYPE_ADDED_BY_PHONE);
+            }
+        }), ConnectionsManager.RequestFlagFailOnServerErrors);
     }
 }
