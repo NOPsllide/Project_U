@@ -66,13 +66,16 @@ import org.telegram.ui.Components.voip.VoIPHelper;
 import java.util.ArrayList;
 import java.util.Iterator;
 
+import org.telegram.core.presenter.CallLogPresenter;
+
 import androidx.collection.LongSparseArray;
 import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-public class CallLogActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class CallLogActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, CallLogPresenter.CallLogView {
 
+	private CallLogPresenter presenter;
 	private ListAdapter listViewAdapter;
 	private EmptyTextProgressView emptyView;
 	private LinearLayoutManager layoutManager;
@@ -384,10 +387,85 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 	}
 
 	@Override
+	public void onCallsLoaded(TLRPC.messages_Messages msgs) {
+		int oldCount = Math.max(listViewAdapter.callsStartRow, 0) + calls.size();
+		LongSparseArray<TLRPC.User> users = new LongSparseArray<>();
+		endReached = msgs.messages.isEmpty();
+		for (int a = 0; a < msgs.users.size(); a++) {
+			TLRPC.User user = msgs.users.get(a);
+			users.put(user.id, user);
+		}
+		CallLogRow currentRow = calls.size() > 0 ? calls.get(calls.size() - 1) : null;
+		for (int a = 0; a < msgs.messages.size(); a++) {
+			TLRPC.Message msg = msgs.messages.get(a);
+			if (msg.action == null || msg.action instanceof TLRPC.TL_messageActionHistoryClear) {
+				continue;
+			}
+			int callType = MessageObject.getFromChatId(msg) == getUserConfig().getClientUserId() ? TYPE_OUT : TYPE_IN;
+			TLRPC.PhoneCallDiscardReason reason = msg.action.reason;
+			if (callType == TYPE_IN && (reason instanceof TLRPC.TL_phoneCallDiscardReasonMissed || reason instanceof TLRPC.TL_phoneCallDiscardReasonBusy)) {
+				callType = TYPE_MISSED;
+			}
+
+			long fromId = MessageObject.getFromChatId(msg);
+			long userID = fromId == getUserConfig().getClientUserId() ? msg.peer_id.user_id : fromId;
+			if (currentRow == null || currentRow.user.id != userID || currentRow.type != callType) {
+				if (currentRow != null && !calls.contains(currentRow)) {
+					calls.add(currentRow);
+				}
+				CallLogRow row = new CallLogRow();
+				row.calls = new ArrayList<>();
+				row.user = users.get(userID);
+				row.type = callType;
+				row.video = msg.action != null && msg.action.video;
+				currentRow = row;
+			}
+			currentRow.calls.add(msg);
+		}
+		if (currentRow != null && currentRow.calls.size() > 0 && !calls.contains(currentRow)) {
+			calls.add(currentRow);
+		}
+		loading = false;
+		showItemsAnimated(oldCount);
+		if (!firstLoaded) {
+			resumeDelayedFragmentAnimation();
+		}
+		firstLoaded = true;
+		otherItem.setVisibility(calls.isEmpty() ? View.GONE : View.VISIBLE);
+		if (emptyView != null) {
+			emptyView.showTextView();
+		}
+		if (listViewAdapter != null) {
+			listViewAdapter.notifyDataSetChanged();
+		}
+	}
+
+	@Override
+	public void onCallsError(TLRPC.TL_error error) {
+		int oldCount = Math.max(listViewAdapter.callsStartRow, 0) + calls.size();
+		endReached = true;
+		loading = false;
+		showItemsAnimated(oldCount);
+		if (!firstLoaded) {
+			resumeDelayedFragmentAnimation();
+		}
+		firstLoaded = true;
+		otherItem.setVisibility(calls.isEmpty() ? View.GONE : View.VISIBLE);
+		if (emptyView != null) {
+			emptyView.showTextView();
+		}
+		if (listViewAdapter != null) {
+			listViewAdapter.notifyDataSetChanged();
+		}
+	}
+
+	@Override
 	public boolean onFragmentCreate() {
 		super.onFragmentCreate();
+		presenter = new CallLogPresenter(currentAccount);
+		presenter.attachView(this);
 		getCalls(0, 50);
-		activeGroupCalls = getMessagesController().getActiveGroupCalls();
+		activeGroupCalls = presenter.getActiveGroupCalls();
 
 		getNotificationCenter().addObserver(this, NotificationCenter.didReceiveNewMessages);
 		getNotificationCenter().addObserver(this, NotificationCenter.messagesDeleted);
@@ -401,6 +479,9 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 	@Override
 	public void onFragmentDestroy() {
 		super.onFragmentDestroy();
+		if (presenter != null) {
+			presenter.detachView();
+		}
 		getNotificationCenter().removeObserver(this, NotificationCenter.didReceiveNewMessages);
 		getNotificationCenter().removeObserver(this, NotificationCenter.messagesDeleted);
 		getNotificationCenter().removeObserver(this, NotificationCenter.activeGroupCallsUpdated);
@@ -616,7 +697,11 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 				otherItem.setVisibility(View.GONE);
 				listViewAdapter.notifyDataSetChanged();
 			} else {
-				getMessagesController().deleteMessages(new ArrayList<>(selectedIds), null, null, 0, checks[0], false);
+				if (presenter != null) {
+					presenter.deleteMessages(new ArrayList<>(selectedIds), checks[0]);
+				} else {
+					getMessagesController().deleteMessages(new ArrayList<>(selectedIds), null, null, 0, checks[0], false);
+				}
 			}
 			hideActionMode(false);
 		});
@@ -630,23 +715,9 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 	}
 
 	private void deleteAllMessages(boolean revoke) {
-		TLRPC.TL_messages_deletePhoneCallHistory req = new TLRPC.TL_messages_deletePhoneCallHistory();
-		req.revoke = revoke;
-		getConnectionsManager().sendRequest(req, (response, error) -> {
-			if (response != null) {
-				TLRPC.TL_messages_affectedFoundMessages res = (TLRPC.TL_messages_affectedFoundMessages) response;
-				TLRPC.TL_updateDeleteMessages updateDeleteMessages = new TLRPC.TL_updateDeleteMessages();
-				updateDeleteMessages.messages = res.messages;
-				updateDeleteMessages.pts = res.pts;
-				updateDeleteMessages.pts_count = res.pts_count;
-				final TLRPC.TL_updates updates = new TLRPC.TL_updates();
-				updates.updates.add(updateDeleteMessages);
-				getMessagesController().processUpdates(updates, false);
-				if (res.offset != 0) {
-					deleteAllMessages(revoke);
-				}
-			}
-		});
+		if (presenter != null) {
+			presenter.deleteAllCallsHistory(revoke);
+		}
 	}
 
 	private void hideActionMode(boolean animated) {
@@ -758,70 +829,9 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 		if (listViewAdapter != null) {
 			listViewAdapter.notifyDataSetChanged();
 		}
-		TLRPC.TL_messages_search req = new TLRPC.TL_messages_search();
-		req.limit = count;
-		req.peer = new TLRPC.TL_inputPeerEmpty();
-		req.filter = new TLRPC.TL_inputMessagesFilterPhoneCalls();
-		req.q = "";
-		req.offset_id = max_id;
-		int reqId = getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-			int oldCount = Math.max(listViewAdapter.callsStartRow, 0) + calls.size();
-			if (error == null) {
-				LongSparseArray<TLRPC.User> users = new LongSparseArray<>();
-				TLRPC.messages_Messages msgs = (TLRPC.messages_Messages) response;
-				endReached = msgs.messages.isEmpty();
-				for (int a = 0; a < msgs.users.size(); a++) {
-					TLRPC.User user = msgs.users.get(a);
-					users.put(user.id, user);
-				}
-				CallLogRow currentRow = calls.size() > 0 ? calls.get(calls.size() - 1) : null;
-				for (int a = 0; a < msgs.messages.size(); a++) {
-					TLRPC.Message msg = msgs.messages.get(a);
-					if (msg.action == null || msg.action instanceof TLRPC.TL_messageActionHistoryClear) {
-						continue;
-					}
-					int callType = MessageObject.getFromChatId(msg) == getUserConfig().getClientUserId() ? TYPE_OUT : TYPE_IN;
-					TLRPC.PhoneCallDiscardReason reason = msg.action.reason;
-					if (callType == TYPE_IN && (reason instanceof TLRPC.TL_phoneCallDiscardReasonMissed || reason instanceof TLRPC.TL_phoneCallDiscardReasonBusy)) {
-						callType = TYPE_MISSED;
-					}
-
-					long fromId = MessageObject.getFromChatId(msg);
-					long userID = fromId == getUserConfig().getClientUserId() ? msg.peer_id.user_id : fromId;
-					if (currentRow == null || currentRow.user.id != userID || currentRow.type != callType) {
-						if (currentRow != null && !calls.contains(currentRow)) {
-							calls.add(currentRow);
-						}
-						CallLogRow row = new CallLogRow();
-						row.calls = new ArrayList<>();
-						row.user = users.get(userID);
-						row.type = callType;
-						row.video = msg.action != null && msg.action.video;
-						currentRow = row;
-					}
-					currentRow.calls.add(msg);
-				}
-				if (currentRow != null && currentRow.calls.size() > 0 && !calls.contains(currentRow)) {
-					calls.add(currentRow);
-				}
-			} else {
-				endReached = true;
-			}
-			loading = false;
-			showItemsAnimated(oldCount);
-			if (!firstLoaded) {
-				resumeDelayedFragmentAnimation();
-			}
-			firstLoaded = true;
-			otherItem.setVisibility(calls.isEmpty() ? View.GONE : View.VISIBLE);
-			if (emptyView != null) {
-				emptyView.showTextView();
-			}
-			if (listViewAdapter != null) {
-				listViewAdapter.notifyDataSetChanged();
-			}
-		}), ConnectionsManager.RequestFlagFailOnServerErrors);
-		getConnectionsManager().bindRequestToGuid(reqId, classGuid);
+		if (presenter != null) {
+			presenter.loadCalls(max_id, count, classGuid);
+		}
 	}
 
 	@Override
@@ -1035,15 +1045,12 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 					switch (row.type) {
 						case TYPE_OUT:
 							subtitle.setSpan(iconOut, ldir.length(), ldir.length() + 1, 0);
-							//cell.setContentDescription(LocaleController.getString("CallMessageOutgoing", R.string.CallMessageOutgoing));
 							break;
 						case TYPE_IN:
 							subtitle.setSpan(iconIn, ldir.length(), ldir.length() + 1, 0);
-							//cell.setContentDescription(LocaleController.getString("CallMessageIncoming", R.string.CallMessageIncoming));
 							break;
 						case TYPE_MISSED:
 							subtitle.setSpan(iconMissed, ldir.length(), ldir.length() + 1, 0);
-							//cell.setContentDescription(LocaleController.getString("CallMessageIncomingMissed", R.string.CallMessageIncomingMissed));
 							break;
 					}
 					cell.profileSearchCell.setData(row.user, null, null, subtitle, false, false);
