@@ -1,8 +1,10 @@
 package org.telegram.core.data.repository;
 
 import android.content.Intent;
+import android.os.Bundle;
 import org.telegram.messenger.ContactsController;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.BaseFragment;
 import java.util.ArrayList;
 
 public interface ContactRepository {
@@ -30,6 +32,20 @@ public interface ContactRepository {
     void checkForceImportContacts();
 
     Intent createInviteSmsIntent(ArrayList<ContactsController.Contact> contacts);
+
+    void checkInviteText();
+
+    void reloadContactsStatusesMaybe();
+
+    void forceImportContacts();
+
+    TLRPC.Chat getChat(long chatId);
+
+    boolean checkCanOpenChat(Bundle args, BaseFragment fragment);
+
+    void setAskAboutContacts(boolean ask);
+
+    boolean getAskAboutContacts();
 
     interface ImportContactCallback {
         void onSuccess(TLRPC.TL_contacts_importedContacts res);

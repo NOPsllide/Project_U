@@ -1,6 +1,8 @@
 package org.telegram.core.data.repository;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Bundle;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.MessagesController;
@@ -8,6 +10,7 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.BaseFragment;
 import java.util.ArrayList;
 
 public class ContactRepositoryImpl implements ContactRepository {
@@ -107,7 +110,7 @@ public class ContactRepositoryImpl implements ContactRepository {
     }
 
     @Override
-    public android.content.Intent createInviteSmsIntent(ArrayList<ContactsController.Contact> contacts) {
+    public Intent createInviteSmsIntent(ArrayList<ContactsController.Contact> contacts) {
         StringBuilder builder = new StringBuilder();
         int num = 0;
         for (int a = 0; a < contacts.size(); a++) {
@@ -122,8 +125,43 @@ public class ContactRepositoryImpl implements ContactRepository {
                 num = contact.imported;
             }
         }
-        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:" + builder.toString()));
+        Intent intent = new Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:" + builder.toString()));
         intent.putExtra("sms_body", ContactsController.getInstance(accountNum).getInviteText(num));
         return intent;
+    }
+
+    @Override
+    public void checkInviteText() {
+        ContactsController.getInstance(accountNum).checkInviteText();
+    }
+
+    @Override
+    public void reloadContactsStatusesMaybe() {
+        ContactsController.getInstance(accountNum).reloadContactsStatusesMaybe();
+    }
+
+    @Override
+    public void forceImportContacts() {
+        ContactsController.getInstance(accountNum).forceImportContacts();
+    }
+
+    @Override
+    public TLRPC.Chat getChat(long chatId) {
+        return MessagesController.getInstance(accountNum).getChat(chatId);
+    }
+
+    @Override
+    public boolean checkCanOpenChat(Bundle args, BaseFragment fragment) {
+        return MessagesController.getInstance(accountNum).checkCanOpenChat(args, fragment);
+    }
+
+    @Override
+    public void setAskAboutContacts(boolean ask) {
+        MessagesController.getGlobalNotificationsSettings().edit().putBoolean("askAboutContacts", ask).commit();
+    }
+
+    @Override
+    public boolean getAskAboutContacts() {
+        return MessagesController.getGlobalNotificationsSettings().getBoolean("askAboutContacts", true);
     }
 }

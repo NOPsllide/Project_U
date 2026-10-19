@@ -98,10 +98,13 @@ import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.StickerEmptyView;
 
+import org.telegram.core.presenter.ContactsPresenter;
+
 import java.util.ArrayList;
 
-public class ContactsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class ContactsActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ContactsPresenter.ContactsView {
 
+    private ContactsPresenter presenter;
     private ContactsAdapter listViewAdapter;
     private StickerEmptyView emptyView;
     private RecyclerListView listView;
@@ -194,9 +197,10 @@ public class ContactsActivity extends BaseFragment implements NotificationCenter
             sortByName = SharedConfig.sortContactsByName;
         }
 
-        getContactsController().checkInviteText();
-        getContactsController().reloadContactsStatusesMaybe();
-
+        presenter = new ContactsPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.checkInviteText();
+        presenter.reloadContactsStatusesMaybe();
 
         return true;
     }
@@ -204,6 +208,9 @@ public class ContactsActivity extends BaseFragment implements NotificationCenter
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.contactsDidLoad);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.updateInterfaces);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.encryptedChatCreated);
@@ -279,7 +286,6 @@ public class ContactsActivity extends BaseFragment implements NotificationCenter
                 listViewAdapter.notifyDataSetChanged();
                 listView.setFastScrollVisible(true);
                 listView.setVerticalScrollBarEnabled(false);
-               // emptyView.setText(LocaleController.getString("NoContacts", R.string.NoContacts));
                 if (floatingButtonContainer != null) {
                     floatingButtonContainer.setVisibility(View.VISIBLE);
                     floatingHidden = true;
@@ -354,10 +360,8 @@ public class ContactsActivity extends BaseFragment implements NotificationCenter
                 if (listView != null && listView.getAdapter() == this) {
                     int count = super.getItemCount();
                     if (needPhonebook) {
-                      //  emptyView.setVisibility(count == 2 ? View.VISIBLE : View.GONE);
                         listView.setFastScrollVisible(count != 2);
                     } else {
-                        //emptyView.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
                         listView.setFastScrollVisible(count != 0);
                     }
                 }
@@ -902,33 +906,45 @@ public class ContactsActivity extends BaseFragment implements NotificationCenter
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.contactsDidLoad) {
-            if (listViewAdapter != null) {
-                if (!sortByName) {
-                    listViewAdapter.setSortType(2, true);
-                }
-                listViewAdapter.notifyDataSetChanged();
+        if (presenter != null) {
+            presenter.handleNotification(id, args);
+        }
+    }
+
+    @Override
+    public void onContactsLoaded() {
+        if (listViewAdapter != null) {
+            if (!sortByName) {
+                listViewAdapter.setSortType(2, true);
             }
-        } else if (id == NotificationCenter.updateInterfaces) {
-            int mask = (Integer) args[0];
-            if ((mask & MessagesController.UPDATE_MASK_AVATAR) != 0 || (mask & MessagesController.UPDATE_MASK_NAME) != 0 || (mask & MessagesController.UPDATE_MASK_STATUS) != 0) {
-                updateVisibleRows(mask);
-            }
-            if ((mask & MessagesController.UPDATE_MASK_STATUS) != 0 && !sortByName && listViewAdapter != null) {
-                listViewAdapter.sortOnlineContacts();
-            }
-        } else if (id == NotificationCenter.encryptedChatCreated) {
-            if (createSecretChat && creatingChat) {
-                TLRPC.EncryptedChat encryptedChat = (TLRPC.EncryptedChat) args[0];
-                Bundle args2 = new Bundle();
-                args2.putInt("enc_id", encryptedChat.id);
-                NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.closeChats);
-                presentFragment(new ChatActivity(args2), true);
-            }
-        } else if (id == NotificationCenter.closeChats) {
-            if (!creatingChat) {
-                removeSelfFromStack();
-            }
+            listViewAdapter.notifyDataSetChanged();
+        }
+    }
+
+    @Override
+    public void onUpdateInterfaces(int mask) {
+        if ((mask & MessagesController.UPDATE_MASK_AVATAR) != 0 || (mask & MessagesController.UPDATE_MASK_NAME) != 0 || (mask & MessagesController.UPDATE_MASK_STATUS) != 0) {
+            updateVisibleRows(mask);
+        }
+        if ((mask & MessagesController.UPDATE_MASK_STATUS) != 0 && !sortByName && listViewAdapter != null) {
+            listViewAdapter.sortOnlineContacts();
+        }
+    }
+
+    @Override
+    public void onEncryptedChatCreated(TLRPC.EncryptedChat encryptedChat) {
+        if (createSecretChat && creatingChat) {
+            Bundle args2 = new Bundle();
+            args2.putInt("enc_id", encryptedChat.id);
+            NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.closeChats);
+            presentFragment(new ChatActivity(args2), true);
+        }
+    }
+
+    @Override
+    public void onCloseChats() {
+        if (!creatingChat) {
+            removeSelfFromStack();
         }
     }
 
