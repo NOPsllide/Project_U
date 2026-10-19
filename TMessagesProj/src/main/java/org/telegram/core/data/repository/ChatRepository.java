@@ -163,4 +163,14 @@ public interface ChatRepository {
     void convertToMegaGroup(android.app.Activity activity, long chatId, BaseFragment fragment, org.telegram.messenger.MessagesStorage.LongCallback callback);
 
     int getForumUpgradeParticipantsMin();
+
+    TLRPC.UserFull getUserFull(long userId);
+
+    void setUserAdminRole(long chatId, TLRPC.User user, TLRPC.TL_chatAdminRights adminRights, String rank, boolean isChannel, BaseFragment fragment, boolean isAddingNew, boolean asAdmin, String botHash, Runnable onFinish);
+
+    void setUserAdminRole(long chatId, TLRPC.User user, TLRPC.TL_chatAdminRights adminRights, String rank, boolean isChannel, BaseFragment fragment, boolean isAddingNew, boolean asAdmin, String botHash, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError);
+
+    void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment);
+
+    void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError);
 }

@@ -596,4 +596,29 @@ public class ChatRepositoryImpl implements ChatRepository {
     public int getForumUpgradeParticipantsMin() {
         return MessagesController.getInstance(accountNum).forumUpgradeParticipantsMin;
     }
+
+    @Override
+    public TLRPC.UserFull getUserFull(long userId) {
+        return MessagesController.getInstance(accountNum).getUserFull(userId);
+    }
+
+    @Override
+    public void setUserAdminRole(long chatId, TLRPC.User user, TLRPC.TL_chatAdminRights adminRights, String rank, boolean isChannel, BaseFragment fragment, boolean isAddingNew, boolean asAdmin, String botHash, Runnable onFinish) {
+        MessagesController.getInstance(accountNum).setUserAdminRole(chatId, user, adminRights, rank, isChannel, fragment, isAddingNew, asAdmin, botHash, onFinish);
+    }
+
+    @Override
+    public void setUserAdminRole(long chatId, TLRPC.User user, TLRPC.TL_chatAdminRights adminRights, String rank, boolean isChannel, BaseFragment fragment, boolean isAddingNew, boolean asAdmin, String botHash, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError) {
+        MessagesController.getInstance(accountNum).setUserAdminRole(chatId, user, adminRights, rank, isChannel, fragment, isAddingNew, asAdmin, botHash, onFinish, onError);
+    }
+
+    @Override
+    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment) {
+        MessagesController.getInstance(accountNum).setParticipantBannedRole(chatId, user, rights, bannedRights, isChannel, fragment);
+    }
+
+    @Override
+    public void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError) {
+        MessagesController.getInstance(accountNum).addUserToChat(chatId, user, fwdCount, botHash, fragment, check, onFinish, onError);
+    }
 }

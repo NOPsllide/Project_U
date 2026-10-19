@@ -73,11 +73,15 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.Premium.LimitReachedBottomSheet;
 import org.telegram.ui.Components.RecyclerListView;
 
+import org.telegram.core.data.repository.ChatRepositoryImpl;
+import org.telegram.core.presenter.ChatRightsEditPresenter;
+
 import java.util.ArrayList;
 import java.util.Calendar;
 
-public class ChatRightsEditActivity extends BaseFragment {
+public class ChatRightsEditActivity extends BaseFragment implements ChatRightsEditPresenter.ChatRightsEditView {
 
+    private ChatRightsEditPresenter presenter;
     private ListAdapter listViewAdapter;
     private RecyclerListView listView;
     private LinearLayoutManager linearLayoutManager;
@@ -164,13 +168,15 @@ public class ChatRightsEditActivity extends BaseFragment {
 
     public ChatRightsEditActivity(long userId, long channelId, TLRPC.TL_chatAdminRights rightsAdmin, TLRPC.TL_chatBannedRights rightsBannedDefault, TLRPC.TL_chatBannedRights rightsBanned, String rank, int type, boolean edit, boolean addingNew, String addingNewBotHash) {
         super();
+        presenter = new ChatRightsEditPresenter(new ChatRepositoryImpl(currentAccount), currentAccount);
+        presenter.attachView(this);
         isAddingNew = addingNew;
         chatId = channelId;
-        currentUser = MessagesController.getInstance(currentAccount).getUser(userId);
+        currentUser = presenter.getUser(userId);
         currentType = type;
         canEdit = edit;
         botHash = addingNewBotHash;
-        currentChat = MessagesController.getInstance(currentAccount).getChat(chatId);
+        currentChat = presenter.getChat(chatId);
         if (rank == null) {
             rank = "";
         }
@@ -185,7 +191,7 @@ public class ChatRightsEditActivity extends BaseFragment {
         }
         if (type == TYPE_ADMIN || type == TYPE_ADD_BOT) {
             if (type == TYPE_ADD_BOT) {
-                TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
+                TLRPC.UserFull userFull = presenter.getUserFull(userId);
                 if (userFull != null) {
                     TLRPC.TL_chatAdminRights botDefaultRights = isChannel ? userFull.bot_broadcast_admin_rights : userFull.bot_group_admin_rights;
                     if (botDefaultRights != null) {
@@ -362,6 +368,17 @@ public class ChatRightsEditActivity extends BaseFragment {
         return adminRights;
     }
 
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
+
+    @Override
+    public void onRoleUpdated(boolean success) {
+    }
 
     @Override
     public View createView(Context context) {
@@ -469,7 +486,7 @@ public class ChatRightsEditActivity extends BaseFragment {
                 presentFragment(new ProfileActivity(args));
             } else if (position == removeAdminRow) {
                 if (currentType == TYPE_ADMIN) {
-                    MessagesController.getInstance(currentAccount).setUserAdminRole(chatId, currentUser, new TLRPC.TL_chatAdminRights(), currentRank, isChannel, getFragmentForAlert(0), isAddingNew, false, null,null);
+                    presenter.setUserAdminRole(chatId, currentUser, new TLRPC.TL_chatAdminRights(), currentRank, isChannel, getFragmentForAlert(0), isAddingNew, false, null, null);
                     if (delegate != null) {
                         delegate.didSetRights(0, adminRights, bannedRights, currentRank);
                     }
@@ -549,15 +566,15 @@ public class ChatRightsEditActivity extends BaseFragment {
                                 listViewAdapter.notifyItemChanged(untilDateRow);
                                 break;
                             case 1:
-                                bannedRights.until_date = ConnectionsManager.getInstance(currentAccount).getCurrentTime() + 60 * 60 * 24;
+                                bannedRights.until_date = presenter.getCurrentTime() + 60 * 60 * 24;
                                 listViewAdapter.notifyItemChanged(untilDateRow);
                                 break;
                             case 2:
-                                bannedRights.until_date = ConnectionsManager.getInstance(currentAccount).getCurrentTime() + 60 * 60 * 24 * 7;
+                                bannedRights.until_date = presenter.getCurrentTime() + 60 * 60 * 24 * 7;
                                 listViewAdapter.notifyItemChanged(untilDateRow);
                                 break;
                             case 3:
-                                bannedRights.until_date = ConnectionsManager.getInstance(currentAccount).getCurrentTime() + 60 * 60 * 24 * 30;
+                                bannedRights.until_date = presenter.getCurrentTime() + 60 * 60 * 24 * 30;
                                 listViewAdapter.notifyItemChanged(untilDateRow);
                                 break;
                             case 4: {
@@ -801,10 +818,10 @@ public class ChatRightsEditActivity extends BaseFragment {
             return;
         }
         if (srp != null && !ChatObject.isChannel(currentChat)) {
-            MessagesController.getInstance(currentAccount).convertToMegaGroup(getParentActivity(), chatId, this, param -> {
+            presenter.convertToMegaGroup(getParentActivity(), chatId, this, param -> {
                 if (param != 0) {
                     chatId = param;
-                    currentChat = MessagesController.getInstance(currentAccount).getChat(param);
+                    currentChat = presenter.getChat(param);
                     initTransfer(srp, passwordFragment);
                 }
             });
@@ -1094,10 +1111,10 @@ public class ChatRightsEditActivity extends BaseFragment {
             return;
         }
         if (!ChatObject.isChannel(currentChat) && (currentType == TYPE_BANNED || currentType == TYPE_ADMIN && (!isDefaultAdminRights() || rankRow != -1 && currentRank.codePointCount(0, currentRank.length()) > MAX_RANK_LENGTH) || currentType == TYPE_ADD_BOT && (currentRank != null || !isDefaultAdminRights()))) {
-            MessagesController.getInstance(currentAccount).convertToMegaGroup(getParentActivity(), chatId, this, param -> {
+            presenter.convertToMegaGroup(getParentActivity(), chatId, this, param -> {
                 if (param != 0) {
                     chatId = param;
-                    currentChat = MessagesController.getInstance(currentAccount).getChat(param);
+                    currentChat = presenter.getChat(param);
                     onDonePressed();
                 }
             });
@@ -1133,7 +1150,7 @@ public class ChatRightsEditActivity extends BaseFragment {
         if (currentType == TYPE_ADMIN) {
             finishFragment = delegate == null;
             setLoading(true);
-            MessagesController.getInstance(currentAccount).setUserAdminRole(chatId, currentUser, adminRights, currentRank, isChannel, this, isAddingNew, false, null, () -> {
+            presenter.setUserAdminRole(chatId, currentUser, adminRights, currentRank, isChannel, this, isAddingNew, false, null, () -> {
                 if (delegate != null) {
                     delegate.didSetRights(
                         adminRights.change_info || adminRights.post_messages || adminRights.edit_messages ||
@@ -1147,7 +1164,7 @@ public class ChatRightsEditActivity extends BaseFragment {
                 return true;
             });
         } else if (currentType == TYPE_BANNED) {
-            MessagesController.getInstance(currentAccount).setParticipantBannedRole(chatId, currentUser, null, bannedRights, isChannel, getFragmentForAlert(1));
+            presenter.setParticipantBannedRole(chatId, currentUser, null, bannedRights, isChannel, getFragmentForAlert(1));
             int rights;
             if (bannedRights.send_messages || bannedRights.send_stickers || bannedRights.embed_links || bannedRights.send_media ||
                     bannedRights.send_gifs || bannedRights.send_games || bannedRights.send_inline) {
@@ -1201,12 +1218,12 @@ public class ChatRightsEditActivity extends BaseFragment {
                     }
                 };
                 if (asAdmin || initialAsAdmin) {
-                    getMessagesController().setUserAdminRole(currentChat.id, currentUser, asAdmin ? adminRights : emptyAdminRights(false), currentRank, false, this, isAddingNew, asAdmin, botHash, onFinish, err -> {
+                    presenter.setUserAdminRole(currentChat.id, currentUser, asAdmin ? adminRights : emptyAdminRights(false), currentRank, false, this, isAddingNew, asAdmin, botHash, onFinish, err -> {
                         setLoading(false);
                         return true;
                     });
                 } else {
-                    getMessagesController().addUserToChat(currentChat.id, currentUser, 0, botHash, this, true, onFinish, err -> {
+                    presenter.addUserToChat(currentChat.id, currentUser, 0, botHash, this, true, onFinish, err -> {
                         setLoading(false);
                         return true;
                     });
@@ -1257,7 +1274,7 @@ public class ChatRightsEditActivity extends BaseFragment {
         if (changed) {
             AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
             builder.setTitle(LocaleController.getString("UserRestrictionsApplyChanges", R.string.UserRestrictionsApplyChanges));
-            TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(chatId);
+            TLRPC.Chat chat = presenter.getChat(chatId);
             builder.setMessage(AndroidUtilities.replaceTags(LocaleController.formatString("UserRestrictionsApplyChangesText", R.string.UserRestrictionsApplyChangesText, chat.title)));
             builder.setPositiveButton(LocaleController.getString("ApplyTheme", R.string.ApplyTheme), (dialogInterface, i) -> onDonePressed());
             builder.setNegativeButton(LocaleController.getString("PassportDiscard", R.string.PassportDiscard), (dialog, which) -> finishFragment());
@@ -1656,9 +1673,7 @@ public class ChatRightsEditActivity extends BaseFragment {
                         checkCell.setIcon(defaultBannedRights.send_polls ? R.drawable.permission_locked : 0);
                     }
 
-                    if (currentType == TYPE_ADD_BOT) {
-//                        checkCell.setEnabled((asAdmin || position == manageRow) && !checkCell.hasIcon(), false);
-                    } else {
+                    if (currentType != TYPE_ADD_BOT) {
                         if (position == sendMediaRow || position == sendStickersRow || position == embedLinksRow || position == sendPollsRow) {
                             checkCell.setEnabled(!bannedRights.send_messages && !bannedRights.view_messages && !defaultBannedRights.send_messages && !defaultBannedRights.view_messages);
                         } else if (position == sendMessagesRow) {
@@ -1817,14 +1832,6 @@ public class ChatRightsEditActivity extends BaseFragment {
                 }
             }
         }
-//        listViewAdapter.notifyItemRangeChanged(permissionsStartRow, permissionsEndRow - permissionsStartRow);
-//        if (asAdmin) {
-//            listViewAdapter.notifyItemMoved(addBotButtonRow, rightsShadowRow + 1);
-//            listViewAdapter.notifyItemRangeInserted(rightsShadowRow, rankInfoRow - rightsShadowRow + 1);
-//        } else {
-//            listViewAdapter.notifyItemRangeRemoved(rightsShadowRow, rankInfoRow - rightsShadowRow + 1);
-//            listViewAdapter.notifyItemMoved(addBotButtonRow, permissionsEndRow + 1);
-//        }
         listViewAdapter.notifyDataSetChanged();
 
         if (addBotButtonText != null) {
