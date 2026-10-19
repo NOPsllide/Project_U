@@ -76,11 +76,14 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.TransformableLoginButtonView;
 import org.telegram.ui.Components.VerticalPositionAutoAnimator;
 
+import org.telegram.core.presenter.TwoStepVerificationPresenter;
+
 import java.util.ArrayList;
 import java.util.Locale;
 
-public class TwoStepVerificationActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class TwoStepVerificationActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, TwoStepVerificationPresenter.TwoStepVerificationView {
 
+    private TwoStepVerificationPresenter presenter;
     private ListAdapter listAdapter;
     private RecyclerListView listView;
     private RLottieImageView lockImageView;
@@ -165,6 +168,8 @@ public class TwoStepVerificationActivity extends BaseFragment implements Notific
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
+        presenter = new TwoStepVerificationPresenter(currentAccount);
+        presenter.attachView(this);
         if (currentPassword == null || currentPassword.current_algo == null || currentPasswordHash == null || currentPasswordHash.length <= 0) {
             loadPasswordInfo(true, currentPassword != null);
         }
@@ -176,6 +181,9 @@ public class TwoStepVerificationActivity extends BaseFragment implements Notific
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         AndroidUtilities.cancelRunOnUIThread(updateTimeRunnable);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.twoStepPasswordChanged);
         destroyed = true;
@@ -639,9 +647,43 @@ public class TwoStepVerificationActivity extends BaseFragment implements Notific
             if (args != null && args.length > 0 && args[0] != null) {
                 currentPasswordHash = (byte[]) args[0];
             }
-            loadPasswordInfo(false, false);
-            updateRows();
+            if (presenter != null) {
+                presenter.handleNotification(id, args);
+            }
         }
+    }
+
+    @Override
+    public void onPasswordLoaded(TLRPC.account_Password password) {
+        currentPassword = password;
+        passwordEntered = currentPasswordHash != null && currentPasswordHash.length > 0 || !currentPassword.has_password;
+        updateRows();
+    }
+
+    @Override
+    public void onPasswordLoadError(TLRPC.TL_error error) {
+    }
+
+    @Override
+    public void onPasswordResetResult(TLRPC.account_ResetPasswordResult result) {
+    }
+
+    @Override
+    public void onPasswordResetError(TLRPC.TL_error error) {
+    }
+
+    @Override
+    public void onPasswordResetDeclined(TLRPC.account_ResetPasswordResult result) {
+    }
+
+    @Override
+    public void onPasswordResetDeclineError(TLRPC.TL_error error) {
+    }
+
+    @Override
+    public void onTwoStepPasswordChanged() {
+        loadPasswordInfo(false, false);
+        updateRows();
     }
 
     @Override
@@ -905,7 +947,11 @@ public class TwoStepVerificationActivity extends BaseFragment implements Notific
         }
         req.new_settings = new TLRPC.TL_account_passwordInputSettings();
 
-        UserConfig.getInstance(currentAccount).resetSavedPassword();
+        if (presenter != null) {
+            presenter.resetSavedPassword();
+        } else {
+            UserConfig.getInstance(currentAccount).resetSavedPassword();
+        }
         currentSecret = null;
         req.new_settings.flags = 3;
         req.new_settings.hint = "";
