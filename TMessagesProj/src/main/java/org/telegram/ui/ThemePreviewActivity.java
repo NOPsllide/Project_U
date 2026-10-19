@@ -2804,10 +2804,10 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                                 }
                             }
                         }
-                    }));
+                    })) : 0;
                     ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId2, classGuid);
                 }
-            }));
+            })) : 0;
             ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
         }
     }
