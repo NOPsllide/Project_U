@@ -155,7 +155,24 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Scanner;
 
-public class PaymentFormActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PaymentFormActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, org.telegram.core.presenter.PaymentFormPresenter.PaymentFormView {
+
+    private org.telegram.core.presenter.PaymentFormPresenter presenter;
+
+    private int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate) {
+        if (presenter != null) {
+            return presenter.sendRequest(request, delegate);
+        }
+        return ConnectionsManager.getInstance(currentAccount).sendRequest(request, delegate);
+    }
+
+    private int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate, int flags) {
+        if (presenter != null) {
+            return presenter.sendRequest(request, delegate, flags);
+        }
+        return ConnectionsManager.getInstance(currentAccount).sendRequest(request, delegate, flags);
+    }
+
     private final static List<String> WEBVIEW_PROTOCOLS = Arrays.asList(
             "http",
             "https"
@@ -384,6 +401,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
 
     public PaymentFormActivity(TLRPC.TL_payments_paymentReceipt receipt) {
         currentStep = STEP_RECEIPT;
+        presenter = new org.telegram.core.presenter.PaymentFormPresenter(currentAccount);
         paymentForm = new TLRPC.TL_payments_paymentForm();
         paymentReceipt = receipt;
         paymentForm.bot_id = receipt.bot_id;
@@ -394,7 +412,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
         if (receipt.tip_amount != 0) {
             tipAmount = receipt.tip_amount;
         }
-        botUser = getMessagesController().getUser(receipt.bot_id);
+        botUser = presenter.getUser(receipt.bot_id);
         if (botUser != null) {
             currentBotName = botUser.first_name;
         } else {
@@ -406,7 +424,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
 
             if (messageObject != null) {
                 TLRPC.TL_inputInvoiceMessage inputInvoice = new TLRPC.TL_inputInvoiceMessage();
-                inputInvoice.peer = getMessagesController().getInputPeer(receipt.bot_id);
+                inputInvoice.peer = presenter.getInputPeer(receipt.bot_id);
                 validateRequest.invoice = inputInvoice;
             } else {
                 TLRPC.TL_inputInvoiceSlug inputInvoice = new TLRPC.TL_inputInvoiceSlug();
@@ -478,7 +496,10 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
         invoiceSlug = slug;
         saveCardInfo = saveCard;
         isWebView = !"stripe".equals(paymentForm.native_provider) && !"smartglocal".equals(paymentForm.native_provider);
-        botUser = getMessagesController().getUser(form.bot_id);
+        if (presenter == null) {
+            presenter = new org.telegram.core.presenter.PaymentFormPresenter(currentAccount);
+        }
+        botUser = presenter.getUser(form.bot_id);
         if (botUser != null) {
             currentBotName = botUser.first_name;
         } else {
@@ -2477,7 +2498,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
             linearLayout2.addView(settingsCell[1], LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             settingsCell[1].setOnClickListener(v -> {
                 TLRPC.TL_account_resendPasswordEmail req = new TLRPC.TL_account_resendPasswordEmail();
-                ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+                sendRequest(req, (response, error) -> {
 
                 });
                 AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
@@ -2804,15 +2825,6 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
 
                 paymentDataRequest.put("merchantInfo", new JSONObject().put("merchantName", currentBotName));
 
-                /*paymentDataRequest.put("shippingAddressRequired", true);
-
-                JSONObject shippingAddressParameters = new JSONObject();
-                shippingAddressParameters.put("phoneNumberRequired", false);
-
-                JSONArray allowedCountryCodes = new JSONArray(Constants.SHIPPING_SUPPORTED_COUNTRIES);
-                shippingAddressParameters.put("allowedCountryCodes", allowedCountryCodes);
-                paymentDataRequest.put("shippingAddressParameters", shippingAddressParameters);*/
-
                 PaymentDataRequest request = PaymentDataRequest.fromJson(paymentDataRequest.toString());
                 if (request != null) {
                     AutoResolveHelper.resolveTask(paymentsClient.loadPaymentData(request), getParentActivity(), LOAD_PAYMENT_DATA_REQUEST_CODE);
@@ -2907,7 +2919,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
         }
         loadingPasswordInfo = true;
         TLRPC.TL_account_getPassword req = new TLRPC.TL_account_getPassword();
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+        sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
             loadingPasswordInfo = false;
             if (error == null) {
                 currentPassword = (TLRPC.account_Password) response;
@@ -3054,6 +3066,10 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
 
     @Override
     public boolean onFragmentCreate() {
+        if (presenter == null) {
+            presenter = new org.telegram.core.presenter.PaymentFormPresenter(currentAccount);
+        }
+        presenter.attachView(this);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.twoStepPasswordChanged);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.didRemoveTwoStepPassword);
         if (currentStep != STEP_CHECKOUT || isCheckoutPreview) {
@@ -3083,6 +3099,9 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (delegate != null) {
             delegate.onFragmentDestroyed();
         }
@@ -3485,7 +3504,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
             showEditDoneProgress(true, true);
             TLRPC.TL_account_confirmPasswordEmail req = new TLRPC.TL_account_confirmPasswordEmail();
             req.code = code;
-            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                 showEditDoneProgress(true, false);
                 if (error == null) {
                     if (getParentActivity() == null) {
@@ -3568,7 +3587,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                 RequestDelegate requestDelegate = (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                     if (error != null && "SRP_ID_INVALID".equals(error.text)) {
                         TLRPC.TL_account_getPassword getPasswordReq = new TLRPC.TL_account_getPassword();
-                        ConnectionsManager.getInstance(currentAccount).sendRequest(getPasswordReq, (response2, error2) -> AndroidUtilities.runOnUIThread(() -> {
+                        sendRequest(getPasswordReq, (response2, error2) -> AndroidUtilities.runOnUIThread(() -> {
                             if (error2 == null) {
                                 currentPassword = (TLRPC.account_Password) response2;
                                 TwoStepVerificationActivity.initPasswordNewAlgo(currentPassword);
@@ -3635,14 +3654,14 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                             error.text = "ALGO_INVALID";
                             requestDelegate.run(null, error);
                         }
-                        ConnectionsManager.getInstance(currentAccount).sendRequest(req, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+                        sendRequest(req, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
                     } else {
                         TLRPC.TL_error error = new TLRPC.TL_error();
                         error.text = "PASSWORD_HASH_INVALID";
                         requestDelegate.run(null, error);
                     }
                 } else {
-                    ConnectionsManager.getInstance(currentAccount).sendRequest(req, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+                    sendRequest(req, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
                 }
             });
         }
@@ -3828,7 +3847,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
         validateRequest.info = paymentForm.saved_info;
 
         TLObject req = validateRequest;
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+        sendRequest(req, (response, error) -> {
             if (response instanceof TLRPC.TL_payments_validatedRequestedInfo) {
                 AndroidUtilities.runOnUIThread(() -> {
                     requestedInfo = (TLRPC.TL_payments_validatedRequestedInfo) response;
@@ -3889,14 +3908,14 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
             validateRequest.info.flags |= 8;
         }
         TLObject req = validateRequest;
-        ConnectionsManager.getInstance(currentAccount).sendRequest(validateRequest, (response, error) -> {
+        sendRequest(validateRequest, (response, error) -> {
             if (response instanceof TLRPC.TL_payments_validatedRequestedInfo) {
                 AndroidUtilities.runOnUIThread(() -> {
                     requestedInfo = (TLRPC.TL_payments_validatedRequestedInfo) response;
                     if (paymentForm.saved_info != null && !saveShippingInfo) {
                         TLRPC.TL_payments_clearSavedInfo req1 = new TLRPC.TL_payments_clearSavedInfo();
                         req1.info = true;
-                        ConnectionsManager.getInstance(currentAccount).sendRequest(req1, (response1, error1) -> {
+                        sendRequest(req1, (response1, error1) -> {
 
                         });
                     }
@@ -3988,7 +4007,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
             req.tip_amount = tipAmount != null ? tipAmount : 0;
             req.flags |= 4;
         }
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+        sendRequest(req, (response, error) -> {
             if (response != null) {
                 if (response instanceof TLRPC.TL_payments_paymentResult) {
                     TLRPC.Updates updates = ((TLRPC.TL_payments_paymentResult) response).updates;
@@ -4003,7 +4022,11 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                             break;
                         }
                     }
-                    getMessagesController().processUpdates(updates, false);
+                    if (presenter != null) {
+                        presenter.processUpdates(updates, false);
+                    } else {
+                        getMessagesController().processUpdates(updates, false);
+                    }
                     AndroidUtilities.runOnUIThread(() -> {
                         paymentStatusSent = true;
                         invoiceStatus = InvoiceStatus.PAID;
@@ -4130,7 +4153,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
         showEditDoneProgress(true, true);
         setDonePressed(true);
         final TLRPC.TL_account_getPassword req = new TLRPC.TL_account_getPassword();
-        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+        sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
             if (error == null) {
                 TLRPC.account_Password currentPassword = (TLRPC.account_Password) response;
                 if (!TwoStepVerificationActivity.canHandleCurrentPassword(currentPassword, false)) {
@@ -4185,7 +4208,7 @@ public class PaymentFormActivity extends BaseFragment implements NotificationCen
                                 requestDelegate.run(null, error2);
                                 return;
                             }
-                            ConnectionsManager.getInstance(currentAccount).sendRequest(req1, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
+                            sendRequest(req1, requestDelegate, ConnectionsManager.RequestFlagFailOnServerErrors | ConnectionsManager.RequestFlagWithoutLogin);
                         } else {
                             TLRPC.TL_error error2 = new TLRPC.TL_error();
                             error2.text = "PASSWORD_HASH_INVALID";
