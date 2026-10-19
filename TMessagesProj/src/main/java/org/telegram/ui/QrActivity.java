@@ -88,12 +88,15 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.StaticLayoutEx;
 import org.telegram.ui.Components.ThemeSmallPreviewView;
 
+import org.telegram.core.presenter.QrPresenter;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-public class QrActivity extends BaseFragment {
+public class QrActivity extends BaseFragment implements QrPresenter.QrActivityView {
 
+    private QrPresenter presenter;
     private static final ArrayMap<String, int[]> qrColorsMap = new ArrayMap<>();
     private static List<EmojiThemes> cachedThemes;
 
@@ -154,7 +157,14 @@ public class QrActivity extends BaseFragment {
     public boolean onFragmentCreate() {
         userId = arguments.getLong("user_id");
         chatId = arguments.getLong("chat_id");
+        presenter = new QrPresenter(currentAccount);
+        presenter.attachView(this);
+        presenter.loadQrData(userId, chatId, null);
         return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onQrDataLoaded(String link, String title, TLRPC.User user, TLRPC.Chat chat) {
     }
 
     @Override
@@ -387,6 +397,9 @@ public class QrActivity extends BaseFragment {
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         themesViewController.onDestroy();
         themesViewController = null;
         emojiThemeIcon.recycle();
@@ -506,7 +519,6 @@ public class QrActivity extends BaseFragment {
 
         float duration = 1f;
         if (patternAlphaAnimator != null) {
-//            from = (float) patternAlphaAnimator.getAnimatedValue();
             duration *= Math.max(.5f, 1f - (float) patternAlphaAnimator.getAnimatedValue());
             patternAlphaAnimator.cancel();
         }
@@ -562,7 +574,6 @@ public class QrActivity extends BaseFragment {
                 }
                 currMotionDrawable.setBackgroundAlpha(progress);
                 currMotionDrawable.setPatternAlpha(progress);
-//                currMotionDrawable.setAlpha((int) (255f * progress));
                 if (newQrColors != null) {
                     int color1 = ColorUtils.blendARGB(prevQrColors[0], newQrColors[0], progress);
                     int color2 = ColorUtils.blendARGB(prevQrColors[1], newQrColors[1], progress);
@@ -860,7 +871,6 @@ public class QrActivity extends BaseFragment {
                     qrBitmap = writer.encode(link, qrBitmapSize, qrBitmapSize, hints, null, 0.75f, backgroundColor, qrColor);
                     imageSize = writer.getImageSize();
                 } catch (Exception e) {
-                    // ignore
                 }
                 if (qrBitmap != null) {
                     break;
