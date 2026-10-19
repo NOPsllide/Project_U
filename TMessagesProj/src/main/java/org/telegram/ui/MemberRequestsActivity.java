@@ -101,4 +101,12 @@ public class MemberRequestsActivity extends BaseFragment implements MemberReques
     public boolean onBackPressed() {
         return delegate.onBackPressed();
     }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
+    }
 }
