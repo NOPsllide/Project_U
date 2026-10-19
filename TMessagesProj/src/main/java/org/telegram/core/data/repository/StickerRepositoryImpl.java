@@ -9,6 +9,7 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -42,7 +43,17 @@ public class StickerRepositoryImpl implements StickerRepository {
 
     @Override
     public void toggleStickerSet(Object parentActivity, TLRPC.StickerSetCovered pack, int installType, Object baseFragment, boolean showSettings, boolean showTooltip) {
-        MediaDataController.getInstance(accountNum).toggleStickerSet(parentActivity, pack, installType, baseFragment, showSettings, showTooltip);
+        MediaDataController.getInstance(accountNum).toggleStickerSet((android.content.Context) parentActivity, pack, installType, (BaseFragment) baseFragment, showSettings, showTooltip);
+    }
+
+    @Override
+    public void toggleStickerSet(Object parentActivity, TLRPC.TL_messages_stickerSet pack, int installType, Object baseFragment, boolean showSettings, boolean showTooltip) {
+        MediaDataController.getInstance(accountNum).toggleStickerSet((android.content.Context) parentActivity, pack, installType, (BaseFragment) baseFragment, showSettings, showTooltip);
+    }
+
+    @Override
+    public void toggleStickerSets(ArrayList<TLRPC.StickerSet> sets, int currentType, int action, Object fragment, boolean showProgress) {
+        MediaDataController.getInstance(accountNum).toggleStickerSets(sets, currentType, action, (BaseFragment) fragment, showProgress);
     }
 
     @Override
@@ -70,13 +81,108 @@ public class StickerRepositoryImpl implements StickerRepository {
     }
 
     @Override
+    public boolean isStickerPackInstalled(long setId, boolean countForced) {
+        return MediaDataController.getInstance(accountNum).isStickerPackInstalled(setId, countForced);
+    }
+
+    @Override
     public void checkImageStickers() {
         MediaDataController.getInstance(accountNum).checkStickers(MediaDataController.TYPE_IMAGE);
     }
 
     @Override
+    public void checkStickers(int type) {
+        MediaDataController.getInstance(accountNum).checkStickers(type);
+    }
+
+    @Override
+    public void checkFeaturedEmoji() {
+        MediaDataController.getInstance(accountNum).checkFeaturedEmoji();
+    }
+
+    @Override
     public ArrayList<TLRPC.TL_messages_stickerSet> getImageStickerSets() {
         return MediaDataController.getInstance(accountNum).getStickerSets(MediaDataController.TYPE_IMAGE);
+    }
+
+    @Override
+    public ArrayList<TLRPC.TL_messages_stickerSet> getStickerSets(int type) {
+        return MediaDataController.getInstance(accountNum).getStickerSets(type);
+    }
+
+    @Override
+    public ArrayList<TLRPC.TL_messages_stickerSet> getFilteredStickerSets(int type) {
+        return new ArrayList<>(MessagesController.getInstance(accountNum).filterPremiumStickers(MediaDataController.getInstance(accountNum).getStickerSets(type)));
+    }
+
+    @Override
+    public ArrayList<TLRPC.StickerSetCovered> getFeaturedEmojiSets() {
+        return MediaDataController.getInstance(accountNum).getFeaturedEmojiSets();
+    }
+
+    @Override
+    public List<TLRPC.StickerSetCovered> getFeaturedSets(int currentType) {
+        MediaDataController mediaDataController = MediaDataController.getInstance(accountNum);
+        List<TLRPC.StickerSetCovered> featuredStickerSets;
+        if (currentType == MediaDataController.TYPE_EMOJIPACKS) {
+            featuredStickerSets = new ArrayList<>(mediaDataController.getFeaturedEmojiSets());
+            for (int i = 0; i < featuredStickerSets.size(); ++i) {
+                if (featuredStickerSets.get(i) == null || mediaDataController.isStickerPackInstalled(featuredStickerSets.get(i).set.id, false)) {
+                    featuredStickerSets.remove(i--);
+                }
+            }
+        } else {
+            featuredStickerSets = mediaDataController.getFeaturedStickerSets();
+        }
+        return featuredStickerSets;
+    }
+
+    @Override
+    public int getArchivedStickersCount(int type) {
+        return MediaDataController.getInstance(accountNum).getArchivedStickersCount(type);
+    }
+
+    @Override
+    public void calcNewHash(int type) {
+        MediaDataController.getInstance(accountNum).calcNewHash(type);
+    }
+
+    @Override
+    public void reorderStickerSets(int type, ArrayList<Long> order, Runnable onComplete) {
+        MediaDataController.getInstance(accountNum).calcNewHash(type);
+        TLRPC.TL_messages_reorderStickerSets req = new TLRPC.TL_messages_reorderStickerSets();
+        req.masks = type == MediaDataController.TYPE_MASK;
+        req.emojis = type == MediaDataController.TYPE_EMOJIPACKS;
+        req.order.addAll(order);
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        }));
+        NotificationCenter.getInstance(accountNum).postNotificationName(NotificationCenter.stickersDidLoad, type, true);
+    }
+
+    @Override
+    public void sortStickerSets(int type, List<TLRPC.TL_messages_stickerSet> orderList) {
+        ArrayList<TLRPC.TL_messages_stickerSet> sets = MediaDataController.getInstance(accountNum).getStickerSets(type);
+        Collections.sort(sets, (o1, o2) -> {
+            int i1 = orderList.indexOf(o1);
+            int i2 = orderList.indexOf(o2);
+            if (i1 >= 0 && i2 >= 0) {
+                return i1 - i2;
+            }
+            return 0;
+        });
+    }
+
+    @Override
+    public String getDoubleTapReaction() {
+        return MediaDataController.getInstance(accountNum).getDoubleTapReaction();
+    }
+
+    @Override
+    public TLRPC.TL_availableReaction getReaction(String reaction) {
+        return MediaDataController.getInstance(accountNum).getReactionsMap().get(reaction);
     }
 
     @Override

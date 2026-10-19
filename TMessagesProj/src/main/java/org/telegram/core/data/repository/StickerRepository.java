@@ -17,13 +17,43 @@ public interface StickerRepository {
 
     void toggleStickerSet(Object parentActivity, TLRPC.StickerSetCovered pack, int installType, Object baseFragment, boolean showSettings, boolean showTooltip);
 
+    void toggleStickerSet(Object parentActivity, TLRPC.TL_messages_stickerSet pack, int installType, Object baseFragment, boolean showSettings, boolean showTooltip);
+
+    void toggleStickerSets(ArrayList<TLRPC.StickerSet> sets, int currentType, int action, Object fragment, boolean showProgress);
+
     void getArchivedStickers(int type, long offsetId, int limit, ArchivedStickersCallback callback);
 
     boolean isStickerPackInstalled(long setId);
 
+    boolean isStickerPackInstalled(long setId, boolean countForced);
+
     void checkImageStickers();
 
+    void checkStickers(int type);
+
+    void checkFeaturedEmoji();
+
     ArrayList<TLRPC.TL_messages_stickerSet> getImageStickerSets();
+
+    ArrayList<TLRPC.TL_messages_stickerSet> getStickerSets(int type);
+
+    ArrayList<TLRPC.TL_messages_stickerSet> getFilteredStickerSets(int type);
+
+    ArrayList<TLRPC.StickerSetCovered> getFeaturedEmojiSets();
+
+    List<TLRPC.StickerSetCovered> getFeaturedSets(int currentType);
+
+    int getArchivedStickersCount(int type);
+
+    void calcNewHash(int type);
+
+    void reorderStickerSets(int type, ArrayList<Long> order, Runnable onComplete);
+
+    void sortStickerSets(int type, List<TLRPC.TL_messages_stickerSet> orderList);
+
+    String getDoubleTapReaction();
+
+    TLRPC.TL_availableReaction getReaction(String reaction);
 
     TLRPC.TL_messages_stickerSet getGroupStickerSetById(TLRPC.StickerSet stickerset);
 
