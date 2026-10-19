@@ -89,5 +89,13 @@ public interface ChatRepository {
 
     void updateChannelUserName(BaseFragment fragment, long chatId, String username);
 
+    void updateChannelUserName(BaseFragment fragment, long chatId, String username, Runnable onComplete, Runnable onError);
+
     int loadAdminedPublicChannels(LinkCallback callback);
+
+    void toggleChatNoForwards(long chatId, boolean enabled);
+
+    int exportPermanentChatInvite(long chatId, LinkCallback callback);
+
+    int deactivateAllUsernames(long chatId, LinkCallback callback);
 }

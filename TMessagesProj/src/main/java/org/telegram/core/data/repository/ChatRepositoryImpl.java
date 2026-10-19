@@ -345,8 +345,49 @@ public class ChatRepositoryImpl implements ChatRepository {
     }
 
     @Override
+    public void updateChannelUserName(BaseFragment fragment, long chatId, String username, Runnable onComplete, Runnable onError) {
+        MessagesController.getInstance(accountNum).updateChannelUserName(fragment, chatId, username, onComplete, onError);
+    }
+
+    @Override
     public int loadAdminedPublicChannels(LinkCallback callback) {
         TLRPC.TL_channels_getAdminedPublicChannels req = new TLRPC.TL_channels_getAdminedPublicChannels();
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public void toggleChatNoForwards(long chatId, boolean enabled) {
+        MessagesController.getInstance(accountNum).toggleChatNoForwards(chatId, enabled);
+    }
+
+    @Override
+    public int exportPermanentChatInvite(long chatId, LinkCallback callback) {
+        TLRPC.TL_messages_exportChatInvite req = new TLRPC.TL_messages_exportChatInvite();
+        req.legacy_revoke_permanent = true;
+        req.peer = MessagesController.getInstance(accountNum).getInputPeer(-chatId);
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int deactivateAllUsernames(long chatId, LinkCallback callback) {
+        TLRPC.TL_channels_deactivateAllUsernames req = new TLRPC.TL_channels_deactivateAllUsernames();
+        req.channel = MessagesController.getInstance(accountNum).getInputChannel(chatId);
         return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
             if (callback != null) {
                 if (error == null) {
