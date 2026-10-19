@@ -1,9 +1,12 @@
 package org.telegram.core.data.repository;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessagesStorage;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
+import java.util.ArrayList;
 
 public class ThemeRepositoryImpl implements ThemeRepository {
 
@@ -82,5 +85,75 @@ public class ThemeRepositoryImpl implements ThemeRepository {
     @Override
     public void applyTheme(Theme.ThemeInfo themeInfo, boolean night) {
         Theme.applyTheme(themeInfo, night);
+    }
+
+    @Override
+    public void loadWallpapersStorage() {
+        MessagesStorage.getInstance(accountNum).getWallpapers();
+    }
+
+    @Override
+    public void deleteWallpaper(long id) {
+        MessagesStorage.getInstance(accountNum).deleteWallpaper(id);
+    }
+
+    @Override
+    public void putWallpapers(ArrayList<TLRPC.WallPaper> wallpapers, int type) {
+        MessagesStorage.getInstance(accountNum).putWallpapers(wallpapers, type);
+    }
+
+    @Override
+    public int getWallpapers(long hash, WallpapersCallback callback) {
+        TLRPC.TL_account_getWallPapers req = new TLRPC.TL_account_getWallPapers();
+        req.hash = hash;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (response instanceof TLRPC.TL_account_wallPapers) {
+                TLRPC.TL_account_wallPapers res = (TLRPC.TL_account_wallPapers) response;
+                if (callback != null) {
+                    callback.onSuccess(res.wallpapers);
+                }
+            } else {
+                if (callback != null) {
+                    callback.onError();
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int resetWallpapers(Runnable onComplete) {
+        TLRPC.TL_account_resetWallPapers req = new TLRPC.TL_account_resetWallPapers();
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        }));
+    }
+
+    @Override
+    public int saveWallpaper(TLRPC.WallPaper wallPaper, boolean unsave, Runnable onComplete) {
+        TLRPC.TL_account_saveWallPaper req = new TLRPC.TL_account_saveWallPaper();
+        req.settings = new TLRPC.TL_wallPaperSettings();
+        req.unsave = unsave;
+        if (wallPaper instanceof TLRPC.TL_wallPaperNoFile) {
+            TLRPC.TL_inputWallPaperNoFile inputWallPaper = new TLRPC.TL_inputWallPaperNoFile();
+            inputWallPaper.id = wallPaper.id;
+            req.wallpaper = inputWallPaper;
+        } else {
+            TLRPC.TL_inputWallPaper inputWallPaper = new TLRPC.TL_inputWallPaper();
+            inputWallPaper.id = wallPaper.id;
+            inputWallPaper.access_hash = wallPaper.access_hash;
+            req.wallpaper = inputWallPaper;
+        }
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        }));
+    }
+
+    @Override
+    public long calcHash(long hash, long id) {
+        return MediaDataController.calcHash(hash, id);
     }
 }

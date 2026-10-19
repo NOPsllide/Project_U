@@ -80,12 +80,18 @@ import org.telegram.ui.Components.NumberTextView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.WallpaperUpdater;
 
+import org.telegram.core.data.repository.ThemeRepositoryImpl;
+import org.telegram.core.presenter.WallpapersListPresenter;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 
-public class WallpapersListActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class WallpapersListActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, WallpapersListPresenter.WallpapersListView {
+
+    private WallpapersListPresenter presenter;
+    private boolean forceLoad;
 
     private int rowCount;
     private int uploadImageRow;
@@ -408,6 +414,8 @@ public class WallpapersListActivity extends BaseFragment implements Notification
     public WallpapersListActivity(int type) {
         super();
         currentType = type;
+        presenter = new WallpapersListPresenter(new ThemeRepositoryImpl(currentAccount), currentAccount);
+        presenter.attachView(this);
     }
 
     @Override
@@ -416,7 +424,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
             NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.wallpapersDidLoad);
             NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.didSetNewWallpapper);
             NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.wallpapersNeedReload);
-            getMessagesStorage().getWallpapers();
+            presenter.loadWallpapersStorage();
         } else {
             boolean darkTheme = Theme.isCurrentThemeDark();
             int[][] defaultColors = darkTheme ? defaultColorsDark : defaultColorsLight;
@@ -429,7 +437,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
             }
             if (currentType == TYPE_COLOR && patterns.isEmpty()) {
                 NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.wallpapersDidLoad);
-                getMessagesStorage().getWallpapers();
+                presenter.loadWallpapersStorage();
             }
         }
         return super.onFragmentCreate();
@@ -437,6 +445,9 @@ public class WallpapersListActivity extends BaseFragment implements Notification
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (currentType == TYPE_ALL) {
             searchAdapter.onDestroy();
             NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.wallpapersDidLoad);
@@ -507,7 +518,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                             if (object instanceof ColorWallpaper) {
                                 ColorWallpaper colorWallpaper = (ColorWallpaper) object;
                                 if (colorWallpaper.parentWallpaper != null && colorWallpaper.parentWallpaper.id < 0) {
-                                    getMessagesStorage().deleteWallpaper(colorWallpaper.parentWallpaper.id);
+                                    presenter.deleteWallpaper(colorWallpaper.parentWallpaper.id);
                                     localWallPapers.remove(colorWallpaper);
                                     localDict.remove(colorWallpaper.getHash());
                                 } else {
@@ -519,20 +530,6 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                             }
                             deleteCount[0]++;
                             TLRPC.WallPaper wallPaper = (TLRPC.WallPaper) object;
-                            TLRPC.TL_account_saveWallPaper req = new TLRPC.TL_account_saveWallPaper();
-                            req.settings = new TLRPC.TL_wallPaperSettings();
-                            req.unsave = true;
-
-                            if (object instanceof TLRPC.TL_wallPaperNoFile) {
-                                TLRPC.TL_inputWallPaperNoFile inputWallPaper = new TLRPC.TL_inputWallPaperNoFile();
-                                inputWallPaper.id = wallPaper.id;
-                                req.wallpaper = inputWallPaper;
-                            } else {
-                                TLRPC.TL_inputWallPaper inputWallPaper = new TLRPC.TL_inputWallPaper();
-                                inputWallPaper.id = wallPaper.id;
-                                inputWallPaper.access_hash = wallPaper.access_hash;
-                                req.wallpaper = inputWallPaper;
-                            }
 
                             if (wallPaper.slug != null && wallPaper.slug.equals(selectedBackgroundSlug)) {
                                 selectedBackgroundSlug = Theme.hasWallpaperFromTheme() ? Theme.THEME_BACKGROUND_SLUG : Theme.DEFAULT_BACKGROUND_SLUG;
@@ -540,12 +537,12 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                                 Theme.reloadWallpaper();
                             }
 
-                            ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                            presenter.saveWallpaper(wallPaper, true, () -> {
                                 deleteCount[0]--;
                                 if (deleteCount[0] == 0) {
                                     loadWallpapers(true);
                                 }
-                            }));
+                            });
                         }
                         if (deleteCount[0] == 0) {
                             loadWallpapers(true);
@@ -756,8 +753,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                     progressDialog = new AlertDialog(getParentActivity(), 3);
                     progressDialog.setCanCancel(false);
                     progressDialog.show();
-                    TLRPC.TL_account_resetWallPapers req = new TLRPC.TL_account_resetWallPapers();
-                    ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> loadWallpapers(false)));
+                    presenter.resetWallpapers();
                 });
                 builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
                 AlertDialog dialog = builder.create();
@@ -1025,7 +1021,7 @@ public class WallpapersListActivity extends BaseFragment implements Notification
             }
             if (wallPapersToDelete != null) {
                 for (int a = 0, N = wallPapersToDelete.size(); a < N; a++) {
-                    getMessagesStorage().deleteWallpaper(wallPapersToDelete.get(a).id);
+                    presenter.deleteWallpaper(wallPapersToDelete.get(a).id);
                 }
             }
             selectedBackgroundSlug = Theme.getSelectedBackgroundSlug();
@@ -1039,11 +1035,12 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                 actionBar.closeSearchField();
             }
         } else if (id == NotificationCenter.wallpapersNeedReload) {
-            getMessagesStorage().getWallpapers();
+            presenter.loadWallpapersStorage();
         }
     }
 
     private void loadWallpapers(boolean force) {
+        forceLoad = force;
         long acc = 0;
         if (!force) {
             for (int a = 0, N = allWallPapers.size(); a < N; a++) {
@@ -1055,68 +1052,77 @@ public class WallpapersListActivity extends BaseFragment implements Notification
                 if (wallPaper.id < 0) {
                     continue;
                 }
-                acc = MediaDataController.calcHash(acc, wallPaper.id);
+                acc = presenter.calcHash(acc, wallPaper.id);
             }
         }
-        TLRPC.TL_account_getWallPapers req = new TLRPC.TL_account_getWallPapers();
-        req.hash = acc;
-        int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (response instanceof TLRPC.TL_account_wallPapers) {
-                TLRPC.TL_account_wallPapers res = (TLRPC.TL_account_wallPapers) response;
-                patterns.clear();
-                patternsDict.clear();
-                if (currentType != TYPE_COLOR) {
-                    wallPapers.clear();
-                    allWallPapersDict.clear();
-                    allWallPapers.clear();
-                    allWallPapers.addAll(res.wallpapers);
-                    wallPapers.addAll(localWallPapers);
+        presenter.loadWallpapers(acc);
+    }
+
+    @Override
+    public void onWallpapersLoaded(ArrayList<TLRPC.WallPaper> wallpapers) {
+        patterns.clear();
+        patternsDict.clear();
+        if (currentType != TYPE_COLOR) {
+            wallPapers.clear();
+            allWallPapersDict.clear();
+            allWallPapers.clear();
+            allWallPapers.addAll(wallpapers);
+            wallPapers.addAll(localWallPapers);
+        }
+        for (int a = 0, N = wallpapers.size(); a < N; a++) {
+            TLRPC.WallPaper wallPaper = wallpapers.get(a);
+            if ("fqv01SQemVIBAAAApND8LDRUhRU".equals(wallPaper.slug)) {
+                continue;
+            }
+            if (wallPaper instanceof TLRPC.TL_wallPaper && !(wallPaper.document instanceof TLRPC.TL_documentEmpty)) {
+                allWallPapersDict.put(wallPaper.slug, wallPaper);
+                if (wallPaper.pattern && wallPaper.document != null && !patternsDict.containsKey(wallPaper.document.id)) {
+                    patterns.add(wallPaper);
+                    patternsDict.put(wallPaper.document.id, wallPaper);
                 }
-                for (int a = 0, N = res.wallpapers.size(); a < N; a++) {
-                    TLRPC.WallPaper wallPaper = res.wallpapers.get(a);
-                    if ("fqv01SQemVIBAAAApND8LDRUhRU".equals(wallPaper.slug)) {
+                if (currentType != TYPE_COLOR && (!wallPaper.pattern || wallPaper.settings != null && wallPaper.settings.background_color != 0)) {
+                    if (!Theme.isCurrentThemeDark() && wallPaper.settings != null && wallPaper.settings.intensity < 0) {
                         continue;
                     }
-                    if (wallPaper instanceof TLRPC.TL_wallPaper && !(wallPaper.document instanceof TLRPC.TL_documentEmpty)) {
-                        allWallPapersDict.put(wallPaper.slug, wallPaper);
-                        if (wallPaper.pattern && wallPaper.document != null && !patternsDict.containsKey(wallPaper.document.id)) {
-                            patterns.add(wallPaper);
-                            patternsDict.put(wallPaper.document.id, wallPaper);
-                        }
-                        if (currentType != TYPE_COLOR && (!wallPaper.pattern || wallPaper.settings != null && wallPaper.settings.background_color != 0)) {
-                            if (!Theme.isCurrentThemeDark() && wallPaper.settings != null && wallPaper.settings.intensity < 0) {
-                                continue;
-                            }
-                            wallPapers.add(wallPaper);
-                        }
-                    } else if (wallPaper.settings.background_color != 0) {
-                        if (!Theme.isCurrentThemeDark() && wallPaper.settings != null && wallPaper.settings.intensity < 0) {
-                            continue;
-                        }
-                        ColorWallpaper colorWallpaper;
-                        if (wallPaper.settings.second_background_color != 0 && wallPaper.settings.third_background_color != 0) {
-                            colorWallpaper = new ColorWallpaper(null, wallPaper.settings.background_color, wallPaper.settings.second_background_color, wallPaper.settings.third_background_color, wallPaper.settings.fourth_background_color);
-                        } else {
-                            colorWallpaper = new ColorWallpaper(null, wallPaper.settings.background_color, wallPaper.settings.second_background_color, wallPaper.settings.rotation);
-                        }
-                        colorWallpaper.slug = wallPaper.slug;
-                        colorWallpaper.intensity = wallPaper.settings.intensity / 100.0f;
-                        colorWallpaper.gradientRotation = AndroidUtilities.getWallpaperRotation(wallPaper.settings.rotation, false);
-                        colorWallpaper.parentWallpaper = wallPaper;
-                        wallPapers.add(colorWallpaper);
-                    }
+                    wallPapers.add(wallPaper);
                 }
-                fillWallpapersWithCustom();
-                getMessagesStorage().putWallpapers(res.wallpapers, 1);
-            }
-            if (progressDialog != null) {
-                progressDialog.dismiss();
-                if (!force) {
-                    listView.smoothScrollToPosition(0);
+            } else if (wallPaper.settings.background_color != 0) {
+                if (!Theme.isCurrentThemeDark() && wallPaper.settings != null && wallPaper.settings.intensity < 0) {
+                    continue;
                 }
+                ColorWallpaper colorWallpaper;
+                if (wallPaper.settings.second_background_color != 0 && wallPaper.settings.third_background_color != 0) {
+                    colorWallpaper = new ColorWallpaper(null, wallPaper.settings.background_color, wallPaper.settings.second_background_color, wallPaper.settings.third_background_color, wallPaper.settings.fourth_background_color);
+                } else {
+                    colorWallpaper = new ColorWallpaper(null, wallPaper.settings.background_color, wallPaper.settings.second_background_color, wallPaper.settings.rotation);
+                }
+                colorWallpaper.slug = wallPaper.slug;
+                colorWallpaper.intensity = wallPaper.settings.intensity / 100.0f;
+                colorWallpaper.gradientRotation = AndroidUtilities.getWallpaperRotation(wallPaper.settings.rotation, false);
+                colorWallpaper.parentWallpaper = wallPaper;
+                wallPapers.add(colorWallpaper);
             }
-        }));
-        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
+        }
+        fillWallpapersWithCustom();
+        presenter.putWallpapers(wallpapers, 1);
+        if (progressDialog != null) {
+            progressDialog.dismiss();
+            if (!forceLoad) {
+                listView.smoothScrollToPosition(0);
+            }
+        }
+    }
+
+    @Override
+    public void onWallpapersLoadError() {
+        if (progressDialog != null) {
+            progressDialog.dismiss();
+        }
+    }
+
+    @Override
+    public void onWallpapersReset() {
+        loadWallpapers(false);
     }
 
     private void fillWallpapersWithCustom() {
@@ -1135,7 +1141,6 @@ public class WallpapersListActivity extends BaseFragment implements Notification
         if (catsWallpaper == null) {
             catsWallpaper = new ColorWallpaper(Theme.DEFAULT_BACKGROUND_SLUG, 0xffdbddbb, 0xff6ba587, 0xffd5d88d, 0xff88b884);
             catsWallpaper.intensity = 0.34f;
-            //catsWallpaper.slug = "fqv01SQemVIBAAAApND8LDRUhRU";
         } else {
             wallPapers.remove(catsWallpaper);
         }
