@@ -306,7 +306,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SuppressWarnings("unchecked")
-public class ChatActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate, LocationActivity.LocationActivityDelegate, ChatAttachAlertDocumentLayout.DocumentSelectActivityDelegate, FragmentContextView.ChatActivityInterface, FloatingDebugProvider {
+public class ChatActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate, LocationActivity.LocationActivityDelegate, ChatAttachAlertDocumentLayout.DocumentSelectActivityDelegate, FragmentContextView.ChatActivityInterface, FloatingDebugProvider, org.telegram.core.presenter.ChatPresenter.ChatView {
+    private org.telegram.core.presenter.ChatPresenter presenter;
     private final static boolean PULL_DOWN_BACK_FRAGMENT = false;
     private final static boolean DISABLE_PROGRESS_VIEW = true;
     private final static int SKELETON_DISAPPEAR_MS = 200;
@@ -917,7 +918,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             NotificationCenter.newDraftReceived,
             NotificationCenter.updateMentionsCount,
             NotificationCenter.didUpdateConnectionState,
-            //NotificationCenter.updateInterfaces,
             NotificationCenter.updateDefaultSendAsPeer,
             NotificationCenter.closeChats,
             NotificationCenter.chatInfoCantLoad,
@@ -1119,7 +1119,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     PhotoViewer.PlaceProviderObject object = new PhotoViewer.PlaceProviderObject();
                     object.viewX = coords[0];
                     object.viewY = coords[1] - (Build.VERSION.SDK_INT >= 21 ? 0 : AndroidUtilities.statusBarHeight);
-//                    object.clipTopAddition = (int) (chatListViewPaddingTop - chatListViewPaddingVisibleOffset - AndroidUtilities.dp(4));
                     object.parentView = mentionContainer.getListView();
                     object.imageReceiver = imageReceiver;
                     object.thumb = imageReceiver.getBitmapSafe();
@@ -1425,6 +1424,8 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new org.telegram.core.presenter.ChatPresenter(currentAccount);
+        presenter.attachView(this);
         final long chatId = arguments.getLong("chat_id", 0);
         final long userId = arguments.getLong("user_id", 0);
         final int encId = arguments.getInt("enc_id", 0);
@@ -1887,6 +1888,9 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (chatActivityEnterView != null) {
             chatActivityEnterView.onDestroy();
         }
@@ -2035,6 +2039,14 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             BackButtonMenu.clearPulledDialogs(this, parentLayout.getFragmentStack().indexOf(this) - (replacingChatActivity ? 0 : 1));
         }
         replacingChatActivity = false;
+    }
+
+    @Override
+    public void showLoading(boolean show) {
+    }
+
+    @Override
+    public void showError(String message) {
     }
 
     @Override
@@ -4850,56 +4862,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
 
                     for (int i = 0; i < getChildCount(); i++) {
                         View v = getChildAt(i);
-//                        if (v instanceof ChatMessageCell) {
-//                            ChatMessageCell cell = (ChatMessageCell) v;
-//                            if ((cell.getCurrentMessagesGroup() == null || cell.getCurrentMessagesGroup().findPrimaryMessageObject() == cell.getMessageObject())) {
-//                                if (cell.shouldDrawAlphaLayer() || System.currentTimeMillis() - startMessageAppearTransitionMs >= SKELETON_DISAPPEAR_MS) {
-//                                    float progress = cell.getAlpha();
-//
-//                                    MessageSkeleton skeleton;
-//                                    if (j >= messageSkeletons.size()) {
-//                                        skeleton = getNewSkeleton(noAvatar);
-//                                        messageSkeletons.add(skeleton);
-//                                    } else {
-//                                        skeleton = messageSkeletons.get(j);
-//                                    }
-//
-//                                    Rect bounds = cell.getCurrentBackgroundDrawable(true).getBounds();
-//                                    MessageObject.GroupedMessages group = cell.getCurrentMessagesGroup();
-//
-//                                    int alpha = skeletonPaint.getAlpha();
-//                                    int wasServiceAlpha = servicePaint.getAlpha();
-//                                    servicePaint.setAlpha((int) (wasServiceAlpha * 0.4f * (1f - progress)));
-//                                    skeletonPaint.setAlpha((int) (alpha * (1f - progress)));
-//                                    int bottom = (int) AndroidUtilities.lerp(Math.min(skeleton.lastBottom, lastTop - AndroidUtilities.dp(3f)), v.getBottom() + (group != null ? group.transitionParams.top + group.transitionParams.offsetTop : 0), progress);
-//                                    int left = noAvatar ? AndroidUtilities.dp(3f) : AndroidUtilities.dp(51);
-//                                    int top = (int) AndroidUtilities.lerp(bottom - skeleton.height, bounds.top + v.getTop() + (group != null ? group.transitionParams.top + group.transitionParams.offsetTop : 0), progress);
-//                                    int right = skeleton.width;
-//
-//                                    boolean lerp = cell.getMessageObject() == null || !cell.getMessageObject().isOut();
-//                                    skeletonBackgroundDrawable.setBounds(lerp ? AndroidUtilities.lerp(left, cell.getBackgroundDrawableLeft(), progress) : left, top,
-//                                            lerp ? AndroidUtilities.lerp(right, cell.getBackgroundDrawableRight(), progress) : right, bottom);
-//                                    Theme.applyServiceShaderMatrix(getMeasuredWidth(), AndroidUtilities.displaySize.y, 0, getY() + skeletonBackgroundDrawable.getBounds().top);
-//                                    skeletonBackgroundDrawable.drawCached(canvas, skeletonBackgroundCacheParams, servicePaint);
-//                                    skeletonBackgroundDrawable.drawCached(canvas, skeletonBackgroundCacheParams, skeletonPaint);
-//                                    if (!noAvatar) {
-//                                        Theme.applyServiceShaderMatrix(getMeasuredWidth(), AndroidUtilities.displaySize.y, 0, getY() + bottom - AndroidUtilities.dp(42));
-//                                        canvas.drawCircle(AndroidUtilities.dp(48 - 21), bottom - AndroidUtilities.dp(21), AndroidUtilities.dp(21), servicePaint);
-//                                        canvas.drawCircle(AndroidUtilities.dp(48 - 21), bottom - AndroidUtilities.dp(21), AndroidUtilities.dp(21), skeletonPaint);
-//                                    }
-//                                    servicePaint.setAlpha(wasServiceAlpha);
-//                                    skeletonPaint.setAlpha(alpha);
-//                                    j++;
-//
-//                                    if (top < lastTop) {
-//                                        lastTop = top;
-//                                    }
-//
-//                                    continue;
-//                                }
-//                                j++;
-//                            }
-//                        }
                         if (v instanceof ChatMessageCell) {
                             MessageObject.GroupedMessages group = ((ChatMessageCell) v).getCurrentMessagesGroup();
                             Rect bounds = ((ChatMessageCell) v).getCurrentBackgroundDrawable(true).getBounds();
@@ -7551,7 +7513,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                         }
                         messageEditTextAnimator = a;
                         a.setDuration(ChatListItemAnimator.DEFAULT_DURATION);
-                       // a.setStartDelay(chatActivityEnterViewAnimateBeforeSending ? 20 : 0);
                         a.setInterpolator(ChatListItemAnimator.DEFAULT_INTERPOLATOR);
                         a.start();
                         shouldAnimateEditTextWithBounds = false;
@@ -7895,7 +7856,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 }
 
                 allowContextBotPanel = !chatActivityEnterView.isPopupShowing();
-//                checkContextBotPanel();
                 int size2 = size + (chatActivityEnterView.isPopupShowing() ? 1 << 16 : 0);
                 if (lastSize != size2) {
                     chatActivityEnterViewAnimateFromTop = 0;
@@ -7910,7 +7870,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     emojiButtonRed.setVisibility(View.GONE);
                 }
                 allowContextBotPanelSecond = !opened;
-//                checkContextBotPanel();
             }
 
             @Override
@@ -8522,7 +8481,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 if (ChatObject.isChannel(currentChat) && !(currentChat instanceof TLRPC.TL_channelForbidden)) {
                     if (ChatObject.isNotInChat(currentChat)) {
                         if (currentChat.join_request) {
-//                            showDialog(new JoinGroupAlert(context, currentChat, null, this));
                             showBottomOverlayProgress(true, true);
                             MessagesController.getInstance(currentAccount).addUserToChat(
                                 currentChat.id,
@@ -9159,12 +9117,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
         if (pullingDownDrawable == null) {
             return;
         }
-//        if (getParentLayout().fragmentsStack.size() > 1) {
-//            BaseFragment previousFragment = getParentLayout().fragmentsStack.get(getParentLayout().fragmentsStack.size() - 2);
-//            if (previousFragment instanceof ChatActivity) {
-//                getParentLayout().fragmentsStack.remove(getParentLayout().fragmentsStack.size() - 2);
-//            }
-//        }
         addToPulledDialogsMyself();
         addToPulledDialogs(pullingDownDrawable.nextChat, pullingDownDrawable.nextDialogId, pullingDownDrawable.dialogFolderId, pullingDownDrawable.dialogFilterId);
         Bundle bundle = new Bundle();
@@ -9917,7 +9869,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
 
     private void openForward(boolean fromActionBar) {
         if (getMessagesController().isChatNoForwards(currentChat) || hasSelectedNoforwardsMessage()) {
-            // We should update text if user changed locale without re-opening chat activity
             String str;
             if (getMessagesController().isChatNoForwards(currentChat)) {
                 if (ChatObject.isChannel(currentChat) && !currentChat.megagroup) {
@@ -10876,9 +10827,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             return false;
         }
         chatActivityEnterView.setOpenGifsTabFirst();
-//        emojiButtonRed = new View(getParentActivity());
-//        emojiButtonRed.setBackgroundResource(R.drawable.redcircle);
-//        frameLayout.addView(emojiButtonRed, index + 1, LayoutHelper.createFrame(10, 10, Gravity.BOTTOM | Gravity.LEFT, 30, 0, 0, 27));
 
         emojiHintTextView = new HintView(getParentActivity(), 9, themeDelegate);
         final String emojiPlaceholder = "<<EMOJI>>";
@@ -12397,7 +12345,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 } else {
                     MediaController.getInstance().setCurrentVideoVisible(true);
                     if (messageObject.isRoundVideo() || scrollToVideo) {
-                     //   scrollToMessageId(messageObject.getId(), 0, false, 0, true, 0);
                     } else {
                         chatListView.invalidate();
                     }
@@ -14228,7 +14175,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             if (photoInfo.path != null) {
                 path = photoInfo.path;
             } else if (photoInfo.uri != null) {
-//                path = AndroidUtilities.getPath(photoInfo.uri);
                 if (path == null) {
                     try {
                         final File file = AndroidUtilities.generatePicturePath(isSecretChat(), "");
@@ -15463,7 +15409,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                             } else {
                                 yOffset = scrollToMessagePosition;
                             }
-                            yOffset += AndroidUtilities.dp(50); // in case pinned message view is visible
+                            yOffset += AndroidUtilities.dp(50);
                             if (!postponedScroll) {
                                 if (!messages.isEmpty()) {
                                     if (chatAdapter.loadingUpRow >= 0 && !messages.isEmpty() && (messages.get(messages.size() - 1) == scrollToMessage || messages.get(messages.size() - 2) == scrollToMessage)) {
@@ -17648,18 +17594,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 updateTopPanel(true);
             }
         } else if (id == NotificationCenter.chatSwithcedToForum) {
-//            long chatId = (long) args[0];
-//            if (-dialog_id == chatId) {
-//                if (chatMode == 0 && getMessagesController().getChat(-dialog_id).forum) {
-//                    if (getParentLayout() != null) {
-//                        if (getParentLayout().checkTransitionAnimation()) {
-//                            AndroidUtilities.runOnUIThread(() -> {
-//                                TopicsFragment.prepareToSwitchAnimation(ChatActivity.this);
-//                            }, 500);
-//                        } else {
-//                            TopicsFragment.prepareToSwitchAnimation(ChatActivity.this);
-//                        }
-//                    }
 
 
         }
@@ -20564,8 +20498,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                         animators.add(ObjectAnimator.ofFloat(pinnedMessageTextView[1], View.TRANSLATION_X, diff, 0.0f));
                         animators.add(ObjectAnimator.ofFloat(pinnedNameTextView[0], View.TRANSLATION_X, diff, 0.0f));
                         animators.add(ObjectAnimator.ofFloat(pinnedNameTextView[1], View.TRANSLATION_X, diff, 0.0f));
-//                        animators.add(ObjectAnimator.ofFloat(pinnedMessageButton[0], View.TRANSLATION_X, diff, 0.0f));
-//                        animators.add(ObjectAnimator.ofFloat(pinnedMessageButton[1], View.TRANSLATION_X, diff, 0.0f));
                         animators.add(ObjectAnimator.ofFloat(pinnedCounterTextView, View.TRANSLATION_X, pinnedCounterTextViewX + diff, pinnedCounterTextViewX));
                         if (diff > 0) {
                             pinnedMessageImageView[0].setAlpha(1f);
@@ -20659,9 +20591,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     });
 
                     pinnedNextAnimation[1].setDuration(180 * 2);
-//                    if (forceScrollToFirst && loadedPinnedMessagesCount > 5) {
                         pinnedNextAnimation[1].setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
-//                    }
                     pinnedNextAnimation[1].playTogether(animators2);
 
                     pinnedNextAnimation[0].playTogether(animators);
@@ -22118,7 +22048,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     messageTextToTranslate = getMessageContent(selectedObject, 0, false);
                 }
                 if (messageTextToTranslate != null && Emoji.fullyConsistsOfEmojis(messageTextToTranslate)) {
-                    messageTextToTranslate = null; // message fully consists of emojis, do not translate
+                    messageTextToTranslate = null;
                 }
 
                 if (message.isSponsored() && !getMessagesController().premiumLocked) {
@@ -22888,15 +22818,11 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                             int totalHeight = contentView.getHeightWithKeyboard();
                             int availableHeight = totalHeight - scrimPopupY - AndroidUtilities.dp(46 + 16) - (isReactionsAvailable ? AndroidUtilities.dp(52) : 0);
 
-//                            if (SharedConfig.messageSeenHintCount > 0 && contentView.getKeyboardHeight() < AndroidUtilities.dp(20)) {
                                 availableHeight -= AndroidUtilities.dp(52);
                                 Bulletin bulletin = BulletinFactory.of(Bulletin.BulletinWindow.make(getContext()), themeDelegate).createErrorBulletin(AndroidUtilities.replaceTags(LocaleController.getString("MessageSeenTooltipMessage", R.string.MessageSeenTooltipMessage)));
                                 bulletin.setDuration(4000);
                                 bulletin.show();
                                 SharedConfig.updateMessageSeenHintCount(SharedConfig.messageSeenHintCount - 1);
-//                            } else if (contentView.getKeyboardHeight() > AndroidUtilities.dp(20)) {
-//                                availableHeight -= contentView.getKeyboardHeight() / 3f;
-//                            }
 
                             listView2.requestLayout();
                             linearLayout.requestLayout();
@@ -24795,7 +24721,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             }
         }
         if (lastVisibleItem != RecyclerView.NO_POSITION) {
-         //   chatLayoutManager.scrollToPositionWithOffset(lastVisibleItem, top);
         }
     }
 
@@ -26134,9 +26059,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                         if (messageObject.isVoice() || messageObject.isRoundVideo()) {
                             boolean result = MediaController.getInstance().playMessage(messageObject, muted);
                             MediaController.getInstance().setVoiceMessagesPlaylist(result ? createVoiceMessagesPlaylist(messageObject, false) : null, false);
-//                            if (messageObject.isRoundVideo() && messageObject.isVoiceTranscriptionOpen()) {
-//                                AndroidUtilities.runOnUIThread(() -> updateMessagesVisiblePart(false), 450);
-//                            }
                             return result;
                         } else if (messageObject.isMusic()) {
                             return MediaController.getInstance().setPlaylist(messages, messageObject, mergeDialogId);
@@ -26976,8 +26898,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     @Override
                     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
                         super.onInitializeAccessibilityNodeInfo(info);
-                        // if alpha == 0, then visibleToUser == false, so we need to override it
-                        // to keep accessibility working correctly
                         info.setVisibleToUser(true);
                     }
                 };
@@ -28032,7 +27952,6 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             }
             scrollTo = null;
             checkTextureViewPosition = true;
-           // chatListView.getOnScrollListener().onScrolled(chatListView, 0, chatScrollHelper.getScrollDirection() == RecyclerAnimationScrollHelper.SCROLL_DIRECTION_DOWN ? 1 : -1);
 
             updateVisibleRows();
 
@@ -28457,12 +28376,9 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, ThemeDescription.FLAG_USEBACKGROUNDDRAWABLE | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, new Class[]{ChatActivityEnterView.class}, new String[]{"scheduledButton"}, null, null, null, Theme.key_listSelector));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"attachButton"}, null, null, null, Theme.key_chat_messagePanelIcons));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, ThemeDescription.FLAG_USEBACKGROUNDDRAWABLE | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, new Class[]{ChatActivityEnterView.class}, new String[]{"attachButton"}, null, null, null, Theme.key_listSelector));
-//        themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"audioSendButton"}, null, null, null, Theme.key_chat_messagePanelIcons));
-//        themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"videoSendButton"}, null, null, null, Theme.key_chat_messagePanelIcons));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"notifyButton"}, null, null, null, Theme.key_chat_messagePanelVideoFrame));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, ThemeDescription.FLAG_USEBACKGROUNDDRAWABLE | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, new Class[]{ChatActivityEnterView.class}, new String[]{"notifyButton"}, null, null, null, Theme.key_listSelector));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"videoTimelineView"}, null, null, null, Theme.key_chat_messagePanelSend));
-        //themeDescriptions.add(new ThemeDescription(chatActivityEnterView, ThemeDescription.FLAG_IMAGECOLOR, new Class[]{ChatActivityEnterView.class}, new String[]{"doneButtonImage"}, null, null, null, Theme.key_chat_messagePanelBackground));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"micDrawable"}, null, null, null, Theme.key_chat_messagePanelVoicePressed));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"cameraDrawable"}, null, null, null, Theme.key_chat_messagePanelVoicePressed));
         themeDescriptions.add(new ThemeDescription(chatActivityEnterView, 0, new Class[]{ChatActivityEnterView.class}, new String[]{"sendDrawable"}, null, null, null, Theme.key_chat_messagePanelVoicePressed));

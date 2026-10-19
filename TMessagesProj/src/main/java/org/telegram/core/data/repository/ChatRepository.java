@@ -182,6 +182,10 @@ public interface ChatRepository {
 
     int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate);
 
+    int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate, int flags);
+
+    void cancelRequestsForGuid(int guid);
+
     void bindRequestToGuid(int reqId, int classGuid);
 
     void putUsers(ArrayList<TLRPC.User> users, boolean fromCache);

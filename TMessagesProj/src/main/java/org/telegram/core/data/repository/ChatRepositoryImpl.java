@@ -643,6 +643,16 @@ public class ChatRepositoryImpl implements ChatRepository {
     }
 
     @Override
+    public int sendRequest(TLObject request, org.telegram.tgnet.RequestDelegate delegate, int flags) {
+        return ConnectionsManager.getInstance(accountNum).sendRequest(request, delegate, flags);
+    }
+
+    @Override
+    public void cancelRequestsForGuid(int guid) {
+        ConnectionsManager.getInstance(accountNum).cancelRequestsForGuid(guid);
+    }
+
+    @Override
     public void bindRequestToGuid(int reqId, int classGuid) {
         ConnectionsManager.getInstance(accountNum).bindRequestToGuid(reqId, classGuid);
     }
