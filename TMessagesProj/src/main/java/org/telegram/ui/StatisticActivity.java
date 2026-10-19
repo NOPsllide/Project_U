@@ -82,21 +82,21 @@ import org.telegram.ui.Components.FlatCheckBox;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.RadialProgressView;
+import org.telegram.core.presenter.StatisticPresenter;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 
-public class StatisticActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class StatisticActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, StatisticPresenter.StatisticView {
 
+    private StatisticPresenter presenter;
     private final TLRPC.ChatFull chat;
 
-    //mutual
     private ChartViewData growthData;
     private ChartViewData topHoursData;
 
-    //channels
     private OverviewChannelData overviewChannelData;
     private ChartViewData followersData;
     private ChartViewData interactionsData;
@@ -106,7 +106,6 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
     private ChartViewData languagesData;
     private ChartViewData notificationsData;
 
-    //chats
     private OverviewChatData overviewChatData;
     private ChartViewData groupMembersData;
     private ChartViewData newMembersBySourceData;
@@ -142,7 +141,8 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         super(args);
         long chatId = args.getLong("chat_id");
         isMegagroup = args.getBoolean("is_megagroup", false);
-        this.chat = getMessagesController().getChatFull(chatId);
+        presenter = new StatisticPresenter(currentAccount);
+        this.chat = presenter.getChatFull(chatId);
     }
 
 
@@ -163,21 +163,13 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
 
     @Override
     public boolean onFragmentCreate() {
+        if (presenter == null) {
+            presenter = new StatisticPresenter(currentAccount);
+        }
+        presenter.attachView(this);
         getNotificationCenter().addObserver(this, NotificationCenter.messagesDidLoad);
 
-        TLObject req;
-        if (isMegagroup) {
-            TLRPC.TL_stats_getMegagroupStats getMegagroupStats = new TLRPC.TL_stats_getMegagroupStats();
-            req = getMegagroupStats;
-            getMegagroupStats.channel = MessagesController.getInstance(currentAccount).getInputChannel(chat.id);
-        } else {
-            TLRPC.TL_stats_getBroadcastStats getBroadcastStats = new TLRPC.TL_stats_getBroadcastStats();
-            req = getBroadcastStats;
-            getBroadcastStats.channel = MessagesController.getInstance(currentAccount).getInputChannel(chat.id);
-        }
-
-
-        int reqId = getConnectionsManager().sendRequest(req, (response, error) -> {
+        presenter.loadStats(chat.id, isMegagroup, chat.stats_dc, classGuid, (response, error) -> {
             if (response instanceof TLRPC.TL_stats_broadcastStats) {
                 final ChartViewData[] chartsViewData = new ChartViewData[9];
                 TLRPC.TL_stats_broadcastStats stats = (TLRPC.TL_stats_broadcastStats) response;
@@ -212,7 +204,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                 if (recentPostsAll.size() > 0) {
                     int lastPostId = recentPostsAll.get(0).counters.msg_id;
                     int count = recentPostsAll.size();
-                    getMessagesStorage().getMessages(-chat.id, 0, false, count, lastPostId, 0, 0, classGuid, 0, false, 0, 0, true, false);
+                    presenter.getMessages(chat.id, count, lastPostId, classGuid);
                 }
 
                 AndroidUtilities.runOnUIThread(() -> {
@@ -295,9 +287,8 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                     dataLoaded(chartsViewData);
                 });
             }
-        }, null, null, 0, chat.stats_dc, ConnectionsManager.ConnectionTypeGeneric, true);
+        });
 
-        getConnectionsManager().bindRequestToGuid(reqId, classGuid);
         return super.onFragmentCreate();
     }
 
@@ -330,6 +321,9 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         getNotificationCenter().removeObserver(this, NotificationCenter.messagesDidLoad);
         if (progressDialog[0] != null) {
             progressDialog[0].dismiss();
@@ -541,7 +535,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         avatarContainer.setOccupyStatusBar(!AndroidUtilities.isTablet());
         actionBar.addView(avatarContainer, 0, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT, !inPreviewMode ? 56 : 0, 0, 40, 0));
 
-        TLRPC.Chat chatLocal = getMessagesController().getChat(chat.id);
+        TLRPC.Chat chatLocal = presenter.getChat(chat.id);
 
         avatarContainer.setChatAvatar(chatLocal);
         avatarContainer.setTitle(chatLocal.title);
@@ -633,7 +627,6 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         int growCell = -1;
         int progressCell = -1;
 
-        // channels
         int folowersCell = -1;
         int topHourseCell = -1;
         int interactionsCell = -1;
@@ -647,7 +640,6 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         int recentPostsStartRow = -1;
         int recentPostsEndRow = -1;
 
-        //megagroup
         int groupMembersCell = -1;
         int newMembersBySourceCell = -1;
         int membersLanguageCell = -1;
@@ -1141,19 +1133,13 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                 return;
             }
 
-            TLRPC.TL_stats_loadAsyncGraph request = new TLRPC.TL_stats_loadAsyncGraph();
-            request.token = data.zoomToken;
-            if (x != 0) {
-                request.x = x;
-                request.flags |= 1;
-            }
             ZoomCancelable finalCancelabel;
             lastCancelable = finalCancelabel = new ZoomCancelable();
             finalCancelabel.adapterPosition = recyclerListView.getChildAdapterPosition(ChartCell.this);
 
             chartView.legendSignatureView.showProgress(true, false);
 
-            int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(request, (response, error) -> {
+            int reqId = presenter.loadAsyncGraph(data.zoomToken, x, chat.stats_dc, classGuid, (response, error) -> {
                 ChartData childData = null;
                 if (response instanceof TLRPC.TL_statsGraph) {
                     String json = ((TLRPC.TL_statsGraph) response).json.data;
@@ -1181,8 +1167,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                     }
                     cancelZoom();
                 });
-            }, null, null, 0, chat.stats_dc, ConnectionsManager.ConnectionTypeGeneric, true);
-            ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
+            });
         }
 
         @Override
@@ -1335,7 +1320,6 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         public void zoomChart(boolean skipTransition) {
             long d = chartView.getSelectedDate();
             ChartData childData = data.childChartData;
-            // if (childData == null) return;
 
             if (!skipTransition || zoomedChartView.getVisibility() != View.VISIBLE) {
                 zoomedChartView.updatePicker(childData, d);
@@ -1792,9 +1776,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         public void load(int accountId, int classGuid, int dc, RecyclerListView recyclerListView, Adapter adapter, DiffUtilsCallback difCallback) {
             if (!loading) {
                 loading = true;
-                TLRPC.TL_stats_loadAsyncGraph request = new TLRPC.TL_stats_loadAsyncGraph();
-                request.token = token;
-                int reqId = ConnectionsManager.getInstance(accountId).sendRequest(request, (response, error) -> {
+                int reqId = new StatisticPresenter(accountId).loadAsyncGraph(token, 0, dc, classGuid, (response, error) -> {
                     ChartData chartData = null;
                     String zoomToken = null;
                     if (error == null) {
@@ -1841,8 +1823,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                             difCallback.update();
                         }
                     });
-                }, null, null, 0, dc, ConnectionsManager.ConnectionTypeGeneric, true);
-                ConnectionsManager.getInstance(accountId).bindRequestToGuid(reqId, classGuid);
+                });
             }
         }
     }
@@ -1853,24 +1834,22 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
     }
 
     private void loadMessages() {
-        TLRPC.TL_channels_getMessages req = new TLRPC.TL_channels_getMessages();
-        req.id = new ArrayList<>();
+        ArrayList<Integer> ids = new ArrayList<>();
         int index = recentPostIdtoIndexMap.get(loadFromId);
         int n = recentPostsAll.size();
         int count = 0;
         for (int i = index; i < n; i++) {
             if (recentPostsAll.get(i).message == null) {
-                req.id.add(recentPostsAll.get(i).counters.msg_id);
+                ids.add(recentPostsAll.get(i).counters.msg_id);
                 count++;
                 if (count > 50) {
                     break;
                 }
             }
         }
-        req.channel = MessagesController.getInstance(currentAccount).getInputChannel(chat.id);
         messagesIsLoading = true;
 
-        getConnectionsManager().sendRequest(req, (response, error) -> {
+        presenter.loadChannelMessages(chat.id, ids, (response, error) -> {
             final ArrayList<MessageObject> messageObjects = new ArrayList<>();
 
             if (response instanceof TLRPC.messages_Messages) {
@@ -1878,7 +1857,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                 for (int i = 0; i < messages.size(); i++) {
                     messageObjects.add(new MessageObject(currentAccount, messages.get(i), false, true));
                 }
-                getMessagesStorage().putMessages(messages, false, true, true, 0, false, 0);
+                presenter.putMessages(messages);
             }
 
             AndroidUtilities.runOnUIThread(() -> {
@@ -2528,7 +2507,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         public void onClick(BaseFragment fragment) {
             Bundle bundle = new Bundle();
             bundle.putLong("user_id", user.id);
-            MessagesController.getInstance(UserConfig.selectedAccount).putUser(user, false);
+            new StatisticPresenter(UserConfig.selectedAccount).putUser(user);
             fragment.presentFragment(new ProfileActivity(bundle));
         }
 
@@ -2537,7 +2516,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
         }
 
         private void onLongClick(TLRPC.ChatFull chat, StatisticActivity fragment, AlertDialog[] progressDialog, boolean userIsPracticant) {
-            MessagesController.getInstance(UserConfig.selectedAccount).putUser(user, false);
+            new StatisticPresenter(UserConfig.selectedAccount).putUser(user);
 
             final ArrayList<String> items = new ArrayList<>();
             final ArrayList<Integer> actions = new ArrayList<>();
@@ -2575,10 +2554,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                     progressDialog[0] = new AlertDialog(fragment.getFragmentView().getContext(), 3);
                     progressDialog[0].showDelayed(300);
                 }
-                TLRPC.TL_channels_getParticipant request = new TLRPC.TL_channels_getParticipant();
-                request.channel = MessagesController.getInstance(UserConfig.selectedAccount).getInputChannel(chat.id);
-                request.participant = MessagesController.getInputPeer(user);
-                ConnectionsManager.getInstance(UserConfig.selectedAccount).sendRequest(request, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                new StatisticPresenter(UserConfig.selectedAccount).getParticipant(chat.id, MessagesController.getInputPeer(user), (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                     if (fragment.isFinishing() || fragment.getFragmentView() == null) {
                         return;
                     }
@@ -2604,10 +2580,7 @@ public class StatisticActivity extends BaseFragment implements NotificationCente
                     progressDialog[0] = new AlertDialog(fragment.getFragmentView().getContext(), 3);
                     progressDialog[0].showDelayed(300);
                 }
-                TLRPC.TL_channels_getParticipant request = new TLRPC.TL_channels_getParticipant();
-                request.channel = MessagesController.getInstance(UserConfig.selectedAccount).getInputChannel(chat.id);
-                request.participant = MessagesController.getInstance(UserConfig.selectedAccount).getInputPeer(UserConfig.getInstance(UserConfig.selectedAccount).clientUserId);
-                ConnectionsManager.getInstance(UserConfig.selectedAccount).sendRequest(request, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                new StatisticPresenter(UserConfig.selectedAccount).getParticipant(chat.id, MessagesController.getInstance(UserConfig.selectedAccount).getInputPeer(UserConfig.getInstance(UserConfig.selectedAccount).clientUserId), (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                     if (fragment.isFinishing() || fragment.getFragmentView() == null) {
                         return;
                     }
