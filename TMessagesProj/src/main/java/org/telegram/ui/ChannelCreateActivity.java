@@ -79,10 +79,13 @@ import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.RadialProgressView;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 
+import org.telegram.core.presenter.ChannelCreatePresenter;
+
 import java.util.ArrayList;
 
-public class ChannelCreateActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ImageUpdater.ImageUpdaterDelegate {
+public class ChannelCreateActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ImageUpdater.ImageUpdaterDelegate, ChannelCreatePresenter.ChannelCreateView {
 
+    private ChannelCreatePresenter presenter;
     private View doneButton;
     private CrossfadeDrawable doneButtonDrawable;
     private EditTextEmoji nameTextView;
@@ -168,6 +171,8 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new ChannelCreatePresenter(currentAccount);
+        presenter.attachView(this);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatDidCreated);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatDidFailCreate);
         if (currentStep == 1) {
@@ -183,6 +188,9 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         if (doneRequestId != null) {
             ConnectionsManager.getInstance(currentAccount).cancelRequest(doneRequestId, true);
             doneRequestId = null;
@@ -785,7 +793,6 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
             linkContainer.addView(privateContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
             permanentLinkView = new LinkActionView(context, this, null, chatId, true, ChatObject.isChannel(getMessagesController().getChat(chatId)));
-            //permanentLinkView.showOptions(false);
             permanentLinkView.hideRevokeOption(true);
             permanentLinkView.setUsers(0, null);
             privateContainer.addView(permanentLinkView);
@@ -1051,36 +1058,60 @@ public class ChannelCreateActivity extends BaseFragment implements NotificationC
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.chatDidFailCreate) {
-            if (cancelDialog != null) {
-                try {
-                    cancelDialog.dismiss();
-                    cancelDialog = null;
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
+        if (presenter != null) {
+            presenter.handleNotification(id, args);
+        }
+    }
+
+    @Override
+    public void onChatCreateFailed() {
+        if (cancelDialog != null) {
+            try {
+                cancelDialog.dismiss();
+                cancelDialog = null;
+            } catch (Exception e) {
+                FileLog.e(e);
             }
-            updateDoneProgress(false);
-            donePressed = false;
-        } else if (id == NotificationCenter.chatDidCreated) {
-            if (cancelDialog != null) {
-                try {
-                    cancelDialog.dismiss();
-                    cancelDialog = null;
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
+        }
+        updateDoneProgress(false);
+        donePressed = false;
+    }
+
+    @Override
+    public void onChatCreated(long chat_id) {
+        if (cancelDialog != null) {
+            try {
+                cancelDialog.dismiss();
+                cancelDialog = null;
+            } catch (Exception e) {
+                FileLog.e(e);
             }
-            long chat_id = (Long) args[0];
-            Bundle bundle = new Bundle();
-            bundle.putInt("step", 1);
-            bundle.putLong("chat_id", chat_id);
-            bundle.putBoolean("canCreatePublic", canCreatePublic);
-            if (inputPhoto != null || inputVideo != null) {
+        }
+        Bundle bundle = new Bundle();
+        bundle.putInt("step", 1);
+        bundle.putLong("chat_id", chat_id);
+        bundle.putBoolean("canCreatePublic", canCreatePublic);
+        if (inputPhoto != null || inputVideo != null) {
+            if (presenter != null) {
+                presenter.changeAvatar(chat_id, inputPhoto, inputVideo, videoTimestamp, inputVideoPath, avatar, avatarBig);
+            } else {
                 MessagesController.getInstance(currentAccount).changeChatAvatar(chat_id, null, inputPhoto, inputVideo, videoTimestamp, inputVideoPath, avatar, avatarBig, null);
             }
-            presentFragment(new ChannelCreateActivity(bundle), true);
         }
+        presentFragment(new ChannelCreateActivity(bundle), true);
+    }
+
+    @Override
+    public void onUsernameCheckResult(String name, boolean available, String error) {
+    }
+
+    @Override
+    public void onAdminedChannelsLoaded(ArrayList<TLRPC.Chat> channels) {
+    }
+
+    @Override
+    public void onCanCreatePublicChannels(boolean canCreate) {
+        canCreatePublic = canCreate;
     }
 
     private void loadAdminedChannels() {

@@ -306,4 +306,55 @@ public class ChatRepositoryImpl implements ChatRepository {
     public void toggleChatJoinToSend(long chatId, boolean enabled, Runnable onComplete) {
         MessagesController.getInstance(accountNum).toggleChatJoinToSend(chatId, enabled, onComplete);
     }
+
+    @Override
+    public void checkPublicChannelsAdmin(LinkCallback callback) {
+        TLRPC.TL_channels_checkUsername req = new TLRPC.TL_channels_checkUsername();
+        req.channel = new TLRPC.TL_inputChannelEmpty();
+        req.username = "1";
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
+
+    @Override
+    public int checkChannelUsername(long chatId, String username, LinkCallback callback) {
+        TLRPC.TL_channels_checkUsername req = new TLRPC.TL_channels_checkUsername();
+        req.channel = MessagesController.getInstance(accountNum).getInputChannel(chatId);
+        req.username = username;
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }), ConnectionsManager.RequestFlagFailOnServerErrors);
+    }
+
+    @Override
+    public void updateChannelUserName(BaseFragment fragment, long chatId, String username) {
+        MessagesController.getInstance(accountNum).updateChannelUserName(fragment, chatId, username, null, null);
+    }
+
+    @Override
+    public int loadAdminedPublicChannels(LinkCallback callback) {
+        TLRPC.TL_channels_getAdminedPublicChannels req = new TLRPC.TL_channels_getAdminedPublicChannels();
+        return ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (callback != null) {
+                if (error == null) {
+                    callback.onSuccess(response);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        }));
+    }
 }

@@ -82,4 +82,12 @@ public interface ChatRepository {
         void onSuccess(TLRPC.TL_messages_inactiveChats chats);
         void onError();
     }
+
+    void checkPublicChannelsAdmin(LinkCallback callback);
+
+    int checkChannelUsername(long chatId, String username, LinkCallback callback);
+
+    void updateChannelUserName(BaseFragment fragment, long chatId, String username);
+
+    int loadAdminedPublicChannels(LinkCallback callback);
 }
