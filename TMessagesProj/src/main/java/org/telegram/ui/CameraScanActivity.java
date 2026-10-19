@@ -130,7 +130,7 @@ public class CameraScanActivity extends BaseFragment implements CameraScanPresen
     private int recognizeIndex = 0;
     private String recognizedText;
 
-    private int sps; // samples per second (when already recognized)
+    private int sps;
 
     private boolean qrLoading = false;
     private boolean qrLoaded = false;
@@ -1000,9 +1000,9 @@ public class CameraScanActivity extends BaseFragment implements CameraScanPresen
                     }
                 }
 
-                if (( // finish because...
-                      (recognizeIndex == 0 && res != null && res.bounds == null && !qrLoading) || // first recognition doesn't have bounds
-                      (SystemClock.elapsedRealtime() - recognizedStart > 1000 && !qrLoading) // got more than 1 second and nothing is loading
+                if ((
+                      (recognizeIndex == 0 && res != null && res.bounds == null && !qrLoading) ||
+                      (SystemClock.elapsedRealtime() - recognizedStart > 1000 && !qrLoading)
                     ) && recognizedText != null) {
                     if (cameraView != null && cameraView.getCameraSession() != null) {
                         CameraController.getInstance().stopPreview(cameraView.getCameraSession());
