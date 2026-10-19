@@ -139,7 +139,9 @@ import java.util.TimerTask;
 
 import javax.crypto.Cipher;
 
-public class PassportActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
+public class PassportActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, org.telegram.core.presenter.PassportPresenter.PassportView {
+
+    private org.telegram.core.presenter.PassportPresenter presenter;
 
     public final static int TYPE_REQUEST = 0;
     public final static int TYPE_IDENTITY = 1;
@@ -927,6 +929,8 @@ public class PassportActivity extends BaseFragment implements NotificationCenter
 
     @Override
     public boolean onFragmentCreate() {
+        presenter = new org.telegram.core.presenter.PassportPresenter(currentAccount);
+        presenter.attachView(this);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.fileUploaded);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.fileUploadFailed);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.twoStepPasswordChanged);
@@ -937,6 +941,9 @@ public class PassportActivity extends BaseFragment implements NotificationCenter
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileUploaded);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.fileUploadFailed);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.twoStepPasswordChanged);
@@ -961,6 +968,14 @@ public class PassportActivity extends BaseFragment implements NotificationCenter
                 progressDialog = null;
             }
         }
+    }
+
+    @Override
+    public void showLoading(boolean show) {
+    }
+
+    @Override
+    public void showError(String message) {
     }
 
     @Override
@@ -6703,7 +6718,6 @@ public class PassportActivity extends BaseFragment implements NotificationCenter
         }
     }
 
-    //-----phone verification
     private String pendingPhone;
     private Runnable pendingFinishRunnable;
     private ErrorRunnable pendingErrorRunnable;
