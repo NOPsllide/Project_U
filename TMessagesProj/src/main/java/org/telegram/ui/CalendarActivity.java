@@ -60,12 +60,15 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SharedMediaLayout;
 
+import org.telegram.core.presenter.CalendarPresenter;
+
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Calendar;
 
-public class CalendarActivity extends BaseFragment {
+public class CalendarActivity extends BaseFragment implements CalendarPresenter.CalendarView {
 
+    private CalendarPresenter presenter;
     public final static int TYPE_CHAT_ACTIVITY = 0;
     public final static int TYPE_MEDIA_CALENDAR = 1;
 
@@ -149,7 +152,17 @@ public class CalendarActivity extends BaseFragment {
         } else {
             canClearHistory = false;
         }
+        presenter = new CalendarPresenter(currentAccount);
+        presenter.attachView(this);
         return super.onFragmentCreate();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (presenter != null) {
+            presenter.detachView();
+        }
     }
 
     @Override
@@ -356,96 +369,90 @@ public class CalendarActivity extends BaseFragment {
             return;
         }
         loading = true;
-        TLRPC.TL_messages_getSearchResultsCalendar req = new TLRPC.TL_messages_getSearchResultsCalendar();
-        if (photosVideosTypeFilter == SharedMediaLayout.FILTER_PHOTOS_ONLY) {
-            req.filter = new TLRPC.TL_inputMessagesFilterPhotos();
-        } else if (photosVideosTypeFilter == SharedMediaLayout.FILTER_VIDEOS_ONLY) {
-            req.filter = new TLRPC.TL_inputMessagesFilterVideo();
-        } else {
-            req.filter = new TLRPC.TL_inputMessagesFilterPhotoVideo();
+        listView.setItemAnimator(null);
+        if (presenter != null) {
+            presenter.loadSearchResultsCalendar(dialogId, lastId, photosVideosTypeFilter);
+        }
+    }
+
+    @Override
+    public void onSearchResultsCalendarLoaded(TLRPC.TL_messages_searchResultsCalendar res) {
+        Calendar calendar = Calendar.getInstance();
+        for (int i = 0; i < res.periods.size(); i++) {
+            TLRPC.TL_searchResultsCalendarPeriod period = res.periods.get(i);
+            calendar.setTimeInMillis(period.date * 1000L);
+            int month = calendar.get(Calendar.YEAR) * 100 + calendar.get(Calendar.MONTH);
+            SparseArray<PeriodDay> messagesByDays = messagesByYearMounth.get(month);
+            if (messagesByDays == null) {
+                messagesByDays = new SparseArray<>();
+                messagesByYearMounth.put(month, messagesByDays);
+            }
+            PeriodDay periodDay = new PeriodDay();
+            MessageObject messageObject = new MessageObject(currentAccount, res.messages.get(i), false, false);
+            periodDay.messageObject = messageObject;
+            periodDay.date = (int) (calendar.getTimeInMillis() / 1000L);
+            startOffset += res.periods.get(i).count;
+            periodDay.startOffset = startOffset;
+            int index = calendar.get(Calendar.DAY_OF_MONTH) - 1;
+            if (messagesByDays.get(index, null) == null || !messagesByDays.get(index, null).hasImage) {
+                messagesByDays.put(index, periodDay);
+            }
+            if (month < minMontYear || minMontYear == 0) {
+                minMontYear = month;
+            }
         }
 
-        req.peer = MessagesController.getInstance(currentAccount).getInputPeer(dialogId);
-        req.offset_id = lastId;
+        int maxDate = (int) (System.currentTimeMillis() / 1000L);
+        minDate = res.min_date;
 
-        Calendar calendar = Calendar.getInstance();
-        listView.setItemAnimator(null);
-        getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-            if (error == null) {
-                TLRPC.TL_messages_searchResultsCalendar res = (TLRPC.TL_messages_searchResultsCalendar) response;
+        for (int date = res.min_date; date < maxDate; date += 86400) {
+            calendar.setTimeInMillis(date * 1000L);
+            calendar.set(Calendar.HOUR_OF_DAY, 0);
+            calendar.set(Calendar.MINUTE, 0);
+            calendar.set(Calendar.SECOND, 0);
+            calendar.set(Calendar.MILLISECOND, 0);
 
-                for (int i = 0; i < res.periods.size(); i++) {
-                    TLRPC.TL_searchResultsCalendarPeriod period = res.periods.get(i);
-                    calendar.setTimeInMillis(period.date * 1000L);
-                    int month = calendar.get(Calendar.YEAR) * 100 + calendar.get(Calendar.MONTH);
-                    SparseArray<PeriodDay> messagesByDays = messagesByYearMounth.get(month);
-                    if (messagesByDays == null) {
-                        messagesByDays = new SparseArray<>();
-                        messagesByYearMounth.put(month, messagesByDays);
-                    }
-                    PeriodDay periodDay = new PeriodDay();
-                    MessageObject messageObject = new MessageObject(currentAccount, res.messages.get(i), false, false);
-                    periodDay.messageObject = messageObject;
-                    periodDay.date = (int) (calendar.getTimeInMillis() / 1000L);
-                    startOffset += res.periods.get(i).count;
-                    periodDay.startOffset = startOffset;
-                    int index = calendar.get(Calendar.DAY_OF_MONTH) - 1;
-                    if (messagesByDays.get(index, null) == null || !messagesByDays.get(index, null).hasImage) {
-                        messagesByDays.put(index, periodDay);
-                    }
-                    if (month < minMontYear || minMontYear == 0) {
-                        minMontYear = month;
-                    }
-                }
-
-                int maxDate = (int) (System.currentTimeMillis() / 1000L);
-                minDate = res.min_date;
-
-                for (int date = res.min_date; date < maxDate; date += 86400) {
-                    calendar.setTimeInMillis(date * 1000L);
-                    calendar.set(Calendar.HOUR_OF_DAY, 0);
-                    calendar.set(Calendar.MINUTE, 0);
-                    calendar.set(Calendar.SECOND, 0);
-                    calendar.set(Calendar.MILLISECOND, 0);
-
-                    int month = calendar.get(Calendar.YEAR) * 100 + calendar.get(Calendar.MONTH);
-                    SparseArray<PeriodDay> messagesByDays = messagesByYearMounth.get(month);
-                    if (messagesByDays == null) {
-                        messagesByDays = new SparseArray<>();
-                        messagesByYearMounth.put(month, messagesByDays);
-                    }
-                    int index = calendar.get(Calendar.DAY_OF_MONTH) - 1;
-                    if (messagesByDays.get(index, null) == null) {
-                        PeriodDay periodDay = new PeriodDay();
-                        periodDay.hasImage = false;
-                        periodDay.date = (int) (calendar.getTimeInMillis() / 1000L);
-                        messagesByDays.put(index, periodDay);
-                    }
-                }
-
-                loading = false;
-                if (!res.messages.isEmpty()) {
-                    lastId = res.messages.get(res.messages.size() - 1).id;
-                    endReached = false;
-                    checkLoadNext();
-                } else {
-                    endReached = true;
-                }
-                if (isOpened) {
-                    checkEnterItems = true;
-                }
-                listView.invalidate();
-                int newMonthCount = (int) (((calendar.getTimeInMillis() / 1000) - res.min_date) / 2629800) + 1;
-                adapter.notifyItemRangeChanged(0, monthCount);
-                if (newMonthCount > monthCount) {
-                    adapter.notifyItemRangeInserted(monthCount + 1, newMonthCount);
-                    monthCount = newMonthCount;
-                }
-                if (endReached) {
-                    resumeDelayedFragmentAnimation();
-                }
+            int month = calendar.get(Calendar.YEAR) * 100 + calendar.get(Calendar.MONTH);
+            SparseArray<PeriodDay> messagesByDays = messagesByYearMounth.get(month);
+            if (messagesByDays == null) {
+                messagesByDays = new SparseArray<>();
+                messagesByYearMounth.put(month, messagesByDays);
             }
-        }));
+            int index = calendar.get(Calendar.DAY_OF_MONTH) - 1;
+            if (messagesByDays.get(index, null) == null) {
+                PeriodDay periodDay = new PeriodDay();
+                periodDay.hasImage = false;
+                periodDay.date = (int) (calendar.getTimeInMillis() / 1000L);
+                messagesByDays.put(index, periodDay);
+            }
+        }
+
+        loading = false;
+        if (!res.messages.isEmpty()) {
+            lastId = res.messages.get(res.messages.size() - 1).id;
+            endReached = false;
+            checkLoadNext();
+        } else {
+            endReached = true;
+        }
+        if (isOpened) {
+            checkEnterItems = true;
+        }
+        listView.invalidate();
+        int newMonthCount = (int) (((calendar.getTimeInMillis() / 1000) - res.min_date) / 2629800) + 1;
+        adapter.notifyItemRangeChanged(0, monthCount);
+        if (newMonthCount > monthCount) {
+            adapter.notifyItemRangeInserted(monthCount + 1, newMonthCount);
+            monthCount = newMonthCount;
+        }
+        if (endReached) {
+            resumeDelayedFragmentAnimation();
+        }
+    }
+
+    @Override
+    public void onSearchResultsCalendarError(TLRPC.TL_error error) {
+        loading = false;
     }
 
     private void checkLoadNext() {
