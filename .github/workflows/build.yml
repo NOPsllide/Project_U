@@ -1,4 +1,4 @@
-name: Build Telegram Android (Ultra Fast with ccache)
+name: Build Telegram Android (Armv7 Debug with ccache)
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Afat Debug APK
+    name: Build Armv7 Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -85,6 +85,6 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Telegram-Afat-Debug-APK
+          name: Telegram-Armv7-Debug-APK
           path: TMessagesProj_App/build/outputs/apk/afat/debug/*.apk
           retention-days: 14
