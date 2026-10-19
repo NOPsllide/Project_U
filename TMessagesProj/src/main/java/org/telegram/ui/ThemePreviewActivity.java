@@ -119,7 +119,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-public class ThemePreviewActivity extends BaseFragment implements DownloadController.FileDownloadProgressListener, NotificationCenter.NotificationCenterDelegate {
+public class ThemePreviewActivity extends BaseFragment implements DownloadController.FileDownloadProgressListener, NotificationCenter.NotificationCenterDelegate, org.telegram.core.presenter.ThemePreviewPresenter.ThemePreviewView {
+
+    private org.telegram.core.presenter.ThemePreviewPresenter presenter;
 
     public static final int SCREEN_TYPE_PREVIEW = 0;
     public static final int SCREEN_TYPE_ACCENT_COLOR = 1;
@@ -1813,7 +1815,11 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                                 if (share) {
                                     if (accent.info == null) {
                                         finishFragment();
-                                        MessagesController.getInstance(currentAccount).saveThemeToServer(accent.parentTheme, accent);
+                                        if (presenter != null) {
+                                            presenter.saveThemeToServer(accent.parentTheme, accent);
+                                        } else {
+                                            MessagesController.getInstance(currentAccount).saveThemeToServer(accent.parentTheme, accent);
+                                        }
                                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needShareTheme, accent.parentTheme, accent);
                                     } else {
                                         String link = "https://" + MessagesController.getInstance(currentAccount).linkPrefix + "/addtheme/" + accent.info.slug;
@@ -2058,12 +2064,20 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                     saveAccentWallpaper();
                     Theme.saveThemeAccents(applyingTheme, true, false, false, false);
                     Theme.clearPreviousTheme();
-                    Theme.applyTheme(applyingTheme, nightTheme);
+                    if (presenter != null) {
+                        presenter.applyTheme(applyingTheme, nightTheme);
+                    } else {
+                        Theme.applyTheme(applyingTheme, nightTheme);
+                    }
                     parentLayout.rebuildAllFragmentViews(false, false);
                 } else {
                     parentLayout.rebuildAllFragmentViews(false, false);
                     Theme.applyThemeFile(new File(applyingTheme.pathToFile), applyingTheme.name, applyingTheme.info, false);
-                    MessagesController.getInstance(applyingTheme.account).saveTheme(applyingTheme, null, false, false);
+                    if (presenter != null) {
+                        presenter.saveTheme(applyingTheme, null, false, false);
+                    } else {
+                        MessagesController.getInstance(applyingTheme.account).saveTheme(applyingTheme, null, false, false);
+                    }
                     SharedPreferences.Editor editor = ApplicationLoader.applicationContext.getSharedPreferences("themeconfig", Activity.MODE_PRIVATE).edit();
                     editor.putString("lastDayTheme", applyingTheme.getKey());
                     editor.commit();
@@ -2501,6 +2515,10 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
 
     @Override
     public boolean onFragmentCreate() {
+        if (presenter == null) {
+            presenter = new org.telegram.core.presenter.ThemePreviewPresenter(currentAccount);
+        }
+        presenter.attachView(this);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiLoaded);
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.invalidateMotionBackground);
         if (screenType == SCREEN_TYPE_ACCENT_COLOR || screenType == SCREEN_TYPE_PREVIEW) {
@@ -2532,6 +2550,9 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
 
     @Override
     public void onFragmentDestroy() {
+        if (presenter != null) {
+            presenter.detachView();
+        }
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiLoaded);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.invalidateMotionBackground);
         if (frameLayout != null && onGlobalLayoutListener != null) {
@@ -2731,7 +2752,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
             }
             TLRPC.TL_account_getWallPapers req = new TLRPC.TL_account_getWallPapers();
             req.hash = acc;
-            int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            int reqId = (presenter != null ? presenter.sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                 if (response instanceof TLRPC.TL_account_wallPapers) {
                     TLRPC.TL_account_wallPapers res = (TLRPC.TL_account_wallPapers) response;
                     patterns.clear();
@@ -2770,7 +2791,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
                     TLRPC.TL_inputWallPaperSlug inputWallPaperSlug = new TLRPC.TL_inputWallPaperSlug();
                     inputWallPaperSlug.slug = accent.patternSlug;
                     req2.wallpaper = inputWallPaperSlug;
-                    int reqId2 = getConnectionsManager().sendRequest(req2, (response1, error1) -> AndroidUtilities.runOnUIThread(() -> {
+                    int reqId2 = (presenter != null ? presenter.sendRequest(req2, (response1, error1) -> AndroidUtilities.runOnUIThread(() -> {
                         if (response1 instanceof TLRPC.TL_wallPaper) {
                             TLRPC.TL_wallPaper wallPaper = (TLRPC.TL_wallPaper) response1;
                             if (wallPaper.pattern) {
@@ -3489,7 +3510,7 @@ public class ThemePreviewActivity extends BaseFragment implements DownloadContro
             }
         }
         if (messagesPlayAnimationView != null) {
-            boolean visible = true;//accent.myMessagesGradientAccentColor1 != 0;
+            boolean visible = true;
             boolean wasVisible = messagesPlayAnimationView.getTag() != null;
             messagesPlayAnimationView.setTag(visible ? 1 : null);
             if (wasVisible != visible) {

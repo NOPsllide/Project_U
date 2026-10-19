@@ -42,6 +42,8 @@ public interface ThemeRepository {
 
     void postGlobalNotification(int id, Object... args);
 
+    int sendRequest(org.telegram.tgnet.TLObject request, org.telegram.tgnet.RequestDelegate delegate);
+
     interface SlugCheckCallback {
         void onResult(boolean available, boolean inUse);
         void onError();

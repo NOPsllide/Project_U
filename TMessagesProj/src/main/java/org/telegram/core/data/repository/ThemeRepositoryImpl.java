@@ -183,4 +183,9 @@ public class ThemeRepositoryImpl implements ThemeRepository {
     public void postGlobalNotification(int id, Object... args) {
         NotificationCenter.getGlobalInstance().postNotificationName(id, args);
     }
+
+    @Override
+    public int sendRequest(org.telegram.tgnet.TLObject request, org.telegram.tgnet.RequestDelegate delegate) {
+        return ConnectionsManager.getInstance(accountNum).sendRequest(request, delegate);
+    }
 }
