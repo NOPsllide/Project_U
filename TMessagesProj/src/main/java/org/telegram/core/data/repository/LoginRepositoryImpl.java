@@ -36,7 +36,7 @@ public class LoginRepositoryImpl implements LoginRepository {
 
     @Override
     public void switchBackend() {
-        ConnectionsManager.getInstance(currentAccount).switchBackend();
+        ConnectionsManager.getInstance(currentAccount).switchBackend(false);
     }
 
     @Override
@@ -56,7 +56,7 @@ public class LoginRepositoryImpl implements LoginRepository {
 
     @Override
     public void cleanup() {
-        ConnectionsManager.getInstance(currentAccount).cleanup();
+        ConnectionsManager.getInstance(currentAccount).cleanup(false);
         MessagesController.getInstance(currentAccount).cleanup();
     }
 
@@ -66,7 +66,7 @@ public class LoginRepositoryImpl implements LoginRepository {
     }
 
     @Override
-    public void removeSuggestion(long did, int type) {
-        MessagesController.getInstance(currentAccount).removeSuggestion(did, type);
+    public void removeSuggestion(long did, String suggestion) {
+        MessagesController.getInstance(currentAccount).removeSuggestion(did, suggestion);
     }
 }

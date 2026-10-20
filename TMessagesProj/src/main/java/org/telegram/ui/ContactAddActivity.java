@@ -273,7 +273,7 @@ public class ContactAddActivity extends BaseFragment implements NotificationCent
             }
 
             if (presenter.needsAddException()) {
-                TLRPC.User user = presenter.getUser();
+                user = presenter.getUser();
                 checkBoxCell = new CheckBoxCell(getParentActivity(), 0);
                 checkBoxCell.setBackgroundDrawable(Theme.getSelectorDrawable(false));
                 checkBoxCell.setText(LocaleController.formatString("SharePhoneNumberWith", R.string.SharePhoneNumberWith, UserObject.getFirstName(user)), "", true, false);

@@ -56,7 +56,7 @@ public class TwoStepVerificationSetupPresenter {
         repository.recoverPassword(code, newSettings, callback);
     }
 
-    public void resendPasswordEmail(TwoStepVerificationRepository.Callback<TLRPC.account_PasswordEmailStatus> callback) {
+    public void resendPasswordEmail(TwoStepVerificationRepository.Callback<TLRPC.Bool> callback) {
         repository.resendPasswordEmail(callback);
     }
 
@@ -68,7 +68,7 @@ public class TwoStepVerificationSetupPresenter {
         repository.confirmPasswordEmail(code, callback);
     }
 
-    public void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, TwoStepVerificationRepository.Callback<TLRPC.account_PasswordSettings> callback) {
+    public void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, TwoStepVerificationRepository.Callback<TLRPC.TL_account_passwordSettings> callback) {
         repository.getPasswordSettings(req, callback);
     }
 

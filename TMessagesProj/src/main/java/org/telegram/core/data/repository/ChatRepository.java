@@ -55,7 +55,7 @@ public interface ChatRepository {
 
     boolean loadMissingUsers(ArrayList<Long> uids);
 
-    int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, TLRPC.InputGeoPoint location, String address, BaseFragment fragment);
+    int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, android.location.Location location, String address, BaseFragment fragment);
 
     void changeChatAvatar(long chatId, TLRPC.InputFile inputPhoto, TLRPC.InputFile inputVideo, double videoTimestamp, String inputVideoPath, TLRPC.FileLocation avatar, TLRPC.FileLocation avatarBig);
 
@@ -170,7 +170,7 @@ public interface ChatRepository {
 
     void setUserAdminRole(long chatId, TLRPC.User user, TLRPC.TL_chatAdminRights adminRights, String rank, boolean isChannel, BaseFragment fragment, boolean isAddingNew, boolean asAdmin, String botHash, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError);
 
-    void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment);
+    void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.Chat chat, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment);
 
     void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, org.telegram.messenger.MessagesController.ErrorDelegate onError);
 
@@ -198,6 +198,6 @@ public interface ChatRepository {
 
     TLRPC.InputChannel getInputChannel(long chatId);
 
-    void processLoadedAdminsResponse(long chatId, ArrayList<TLRPC.ChatParticipant> participants);
+    void processLoadedAdminsResponse(long chatId, TLRPC.TL_channels_channelParticipants participants);
 }
 

@@ -171,7 +171,7 @@ public class ChatReactionsPresenter {
         if (currentChat == null) {
             return false;
         }
-        return ChatObject.isChannelAndNotMegaGroup(chatId, currentChat);
+        return ChatObject.isChannelAndNotMegaGroup(currentChat);
     }
 
     public TLRPC.Chat getCurrentChat() {

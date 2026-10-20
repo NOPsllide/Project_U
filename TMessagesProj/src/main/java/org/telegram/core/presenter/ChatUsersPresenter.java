@@ -82,8 +82,8 @@ public class ChatUsersPresenter {
         repository.setUserAdminRole(chatId, user, adminRights, rank, isChannel, fragment, isAddingNew, asAdmin, botHash, onFinish, onError);
     }
 
-    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment) {
-        repository.setParticipantBannedRole(chatId, user, rights, bannedRights, isChannel, fragment);
+    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.Chat chat, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment) {
+        repository.setParticipantBannedRole(chatId, user, chat, rights, isChannel, fragment);
     }
 
     public void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, MessagesController.ErrorDelegate onError) {
@@ -130,7 +130,7 @@ public class ChatUsersPresenter {
         return repository.getInputChannel(chatId);
     }
 
-    public void processLoadedAdminsResponse(long chatId, ArrayList<TLRPC.ChatParticipant> participants) {
+    public void processLoadedAdminsResponse(long chatId, TLRPC.TL_channels_channelParticipants participants) {
         repository.processLoadedAdminsResponse(chatId, participants);
     }
 }

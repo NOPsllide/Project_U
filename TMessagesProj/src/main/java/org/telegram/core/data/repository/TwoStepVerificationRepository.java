@@ -23,7 +23,7 @@ public interface TwoStepVerificationRepository {
 
     void postPasswordNotification(TLRPC.account_Password password);
 
-    void resendPasswordEmail(Callback<TLRPC.account_PasswordEmailStatus> callback);
+    void resendPasswordEmail(Callback<TLRPC.Bool> callback);
 
     void cancelPasswordEmail(Callback<TLRPC.TL_boolTrue> callback);
 
@@ -31,7 +31,7 @@ public interface TwoStepVerificationRepository {
 
     void recoverPassword(String code, TLRPC.TL_account_passwordInputSettings newSettings, Callback<TLObject> callback);
 
-    void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.account_PasswordSettings> callback);
+    void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.TL_account_passwordSettings> callback);
 
     void sendRequest(TLObject req, RequestDelegate delegate, int flags);
 

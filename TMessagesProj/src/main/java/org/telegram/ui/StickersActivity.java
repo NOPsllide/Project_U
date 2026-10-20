@@ -1274,7 +1274,11 @@ public class StickersActivity extends BaseFragment implements NotificationCenter
                                 }
                                 loadingFeaturedStickerSets.add(covered.set.id);
                             }
-                            presenter.toggleStickerSet(getParentActivity(), covered == null ? set : covered, 2, StickersActivity.this, false, false);
+                            if (covered != null) {
+                                presenter.toggleStickerSet(getParentActivity(), covered, 2, StickersActivity.this, false, false);
+                            } else {
+                                presenter.toggleStickerSet(getParentActivity(), set, 2, StickersActivity.this, false, false);
+                            }
                         }
 
                         @Override

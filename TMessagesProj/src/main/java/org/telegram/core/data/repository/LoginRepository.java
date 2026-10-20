@@ -26,5 +26,5 @@ public interface LoginRepository {
 
     void putUser(TLRPC.User user, boolean fromCache);
 
-    void removeSuggestion(long did, int type);
+    void removeSuggestion(long did, String suggestion);
 }

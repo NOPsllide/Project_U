@@ -58,8 +58,8 @@ public class ChatRightsEditPresenter {
         chatRepository.setUserAdminRole(chatId, user, adminRights, rank, isChannel, fragment, isAddingNew, asAdmin, botHash, onFinish, onError);
     }
 
-    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment) {
-        chatRepository.setParticipantBannedRole(chatId, user, rights, bannedRights, isChannel, fragment);
+    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.Chat chat, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment) {
+        chatRepository.setParticipantBannedRole(chatId, user, chat, rights, isChannel, fragment);
     }
 
     public void addUserToChat(long chatId, TLRPC.User user, int fwdCount, String botHash, BaseFragment fragment, boolean check, Runnable onFinish, MessagesController.ErrorDelegate onError) {

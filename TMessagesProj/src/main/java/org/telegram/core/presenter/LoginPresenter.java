@@ -72,7 +72,7 @@ public class LoginPresenter {
         repository.putUser(user, fromCache);
     }
 
-    public void removeSuggestion(long did, int type) {
-        repository.removeSuggestion(did, type);
+    public void removeSuggestion(long did, String suggestion) {
+        repository.removeSuggestion(did, suggestion);
     }
 }

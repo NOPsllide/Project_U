@@ -94,7 +94,7 @@ public class LanguageRepositoryImpl implements LanguageRepository {
             String q = query != null ? query.trim().toLowerCase() : "";
             if (q.length() == 0) {
                 if (callback != null) {
-                    callback.onResult(new ArrayList<>());
+                    callback.run(new ArrayList<>());
                 }
                 return;
             }
@@ -114,7 +114,7 @@ public class LanguageRepositoryImpl implements LanguageRepository {
                 }
             }
             if (callback != null) {
-                callback.onResult(resultArray);
+                callback.run(resultArray);
             }
         });
     }

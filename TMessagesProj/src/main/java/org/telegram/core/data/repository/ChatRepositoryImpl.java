@@ -238,7 +238,7 @@ public class ChatRepositoryImpl implements ChatRepository {
     }
 
     @Override
-    public int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, TLRPC.InputGeoPoint location, String address, BaseFragment fragment) {
+    public int createChat(String title, ArrayList<Long> selectedContacts, String about, int chatType, boolean forImport, android.location.Location location, String address, BaseFragment fragment) {
         return MessagesController.getInstance(accountNum).createChat(title, selectedContacts, about, chatType, forImport, location, address, fragment);
     }
 
@@ -300,12 +300,12 @@ public class ChatRepositoryImpl implements ChatRepository {
 
     @Override
     public void toggleChatJoinRequest(long chatId, boolean enabled, Runnable onComplete) {
-        MessagesController.getInstance(accountNum).toggleChatJoinRequest(chatId, enabled, onComplete);
+        MessagesController.getInstance(accountNum).toggleChatJoinRequest(chatId, enabled, onComplete, null);
     }
 
     @Override
     public void toggleChatJoinToSend(long chatId, boolean enabled, Runnable onComplete) {
-        MessagesController.getInstance(accountNum).toggleChatJoinToSend(chatId, enabled, onComplete);
+        MessagesController.getInstance(accountNum).toggleChatJoinToSend(chatId, enabled, onComplete, null);
     }
 
     @Override
@@ -613,8 +613,8 @@ public class ChatRepositoryImpl implements ChatRepository {
     }
 
     @Override
-    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.TL_chatBannedRights rights, TLRPC.TL_chatBannedRights bannedRights, boolean isChannel, BaseFragment fragment) {
-        MessagesController.getInstance(accountNum).setParticipantBannedRole(chatId, user, rights, bannedRights, isChannel, fragment);
+    public void setParticipantBannedRole(long chatId, TLRPC.User user, TLRPC.Chat chat, TLRPC.TL_chatBannedRights rights, boolean isChannel, BaseFragment fragment) {
+        MessagesController.getInstance(accountNum).setParticipantBannedRole(chatId, user, chat, rights, isChannel, fragment);
     }
 
     @Override
@@ -683,7 +683,7 @@ public class ChatRepositoryImpl implements ChatRepository {
     }
 
     @Override
-    public void processLoadedAdminsResponse(long chatId, ArrayList<TLRPC.ChatParticipant> participants) {
+    public void processLoadedAdminsResponse(long chatId, TLRPC.TL_channels_channelParticipants participants) {
         MessagesController.getInstance(accountNum).processLoadedAdminsResponse(chatId, participants);
     }
 }

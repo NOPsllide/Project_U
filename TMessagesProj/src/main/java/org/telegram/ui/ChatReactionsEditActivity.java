@@ -39,6 +39,10 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 public class ChatReactionsEditActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ChatReactionsPresenter.View {
+    public static final int SELECT_TYPE_NONE = ChatReactionsPresenter.SELECT_TYPE_NONE;
+    public static final int SELECT_TYPE_ALL = ChatReactionsPresenter.SELECT_TYPE_ALL;
+    public static final int SELECT_TYPE_SOME = ChatReactionsPresenter.SELECT_TYPE_SOME;
+
     private final static int TYPE_INFO = 0, TYPE_HEADER = 1, TYPE_REACTION = 2, TYPE_CONTROLS_CONTAINER = 3;
 
     public final static String KEY_CHAT_ID = "chat_id";

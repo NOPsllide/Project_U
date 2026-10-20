@@ -75,12 +75,12 @@ public class TwoStepVerificationRepositoryImpl implements TwoStepVerificationRep
     }
 
     @Override
-    public void resendPasswordEmail(Callback<TLRPC.account_PasswordEmailStatus> callback) {
+    public void resendPasswordEmail(Callback<TLRPC.Bool> callback) {
         TLRPC.TL_account_resendPasswordEmail req = new TLRPC.TL_account_resendPasswordEmail();
         ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
             if (callback != null) {
-                if (error == null && response instanceof TLRPC.account_PasswordEmailStatus) {
-                    callback.onSuccess((TLRPC.account_PasswordEmailStatus) response);
+                if (error == null && response instanceof TLRPC.Bool) {
+                    callback.onSuccess((TLRPC.Bool) response);
                 } else {
                     callback.onError(error);
                 }
@@ -137,11 +137,11 @@ public class TwoStepVerificationRepositoryImpl implements TwoStepVerificationRep
     }
 
     @Override
-    public void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.account_PasswordSettings> callback) {
+    public void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.TL_account_passwordSettings> callback) {
         ConnectionsManager.getInstance(accountNum).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
             if (callback != null) {
-                if (error == null && response instanceof TLRPC.account_PasswordSettings) {
-                    callback.onSuccess((TLRPC.account_PasswordSettings) response);
+                if (error == null && response instanceof TLRPC.TL_account_passwordSettings) {
+                    callback.onSuccess((TLRPC.TL_account_passwordSettings) response);
                 } else {
                     callback.onError(error);
                 }

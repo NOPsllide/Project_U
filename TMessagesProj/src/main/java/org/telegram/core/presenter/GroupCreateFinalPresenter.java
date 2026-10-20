@@ -37,7 +37,7 @@ public class GroupCreateFinalPresenter {
         return repository.loadMissingUsers(selectedContacts);
     }
 
-    public int createChat(String title, ArrayList<Long> selectedContacts, int chatType, boolean forImport, TLRPC.InputGeoPoint location, String address, BaseFragment fragment) {
+    public int createChat(String title, ArrayList<Long> selectedContacts, int chatType, boolean forImport, android.location.Location location, String address, BaseFragment fragment) {
         return repository.createChat(title, selectedContacts, null, chatType, forImport, location, address, fragment);
     }
 
