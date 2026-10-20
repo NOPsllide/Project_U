@@ -150,6 +150,11 @@ public class TwoStepVerificationRepositoryImpl implements TwoStepVerificationRep
     }
 
     @Override
+    public void sendRequest(TLObject req, RequestDelegate delegate) {
+        ConnectionsManager.getInstance(accountNum).sendRequest(req, delegate);
+    }
+
+    @Override
     public void sendRequest(TLObject req, RequestDelegate delegate, int flags) {
         ConnectionsManager.getInstance(accountNum).sendRequest(req, delegate, flags);
     }

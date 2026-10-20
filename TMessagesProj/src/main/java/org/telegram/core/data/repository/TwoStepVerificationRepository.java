@@ -33,6 +33,8 @@ public interface TwoStepVerificationRepository {
 
     void getPasswordSettings(TLRPC.TL_account_getPasswordSettings req, Callback<TLRPC.TL_account_passwordSettings> callback);
 
+    void sendRequest(TLObject req, RequestDelegate delegate);
+
     void sendRequest(TLObject req, RequestDelegate delegate, int flags);
 
     void postNotification(int id, Object... args);

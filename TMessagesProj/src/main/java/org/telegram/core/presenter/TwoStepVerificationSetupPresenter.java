@@ -72,6 +72,10 @@ public class TwoStepVerificationSetupPresenter {
         repository.getPasswordSettings(req, callback);
     }
 
+    public void sendRequest(TLObject req, RequestDelegate delegate) {
+        repository.sendRequest(req, delegate);
+    }
+
     public void sendRequest(TLObject req, RequestDelegate delegate, int flags) {
         repository.sendRequest(req, delegate, flags);
     }
